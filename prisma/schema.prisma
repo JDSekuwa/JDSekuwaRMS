@@ -1,13 +1,327 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  WORKER
+}
+
+enum Unit {
+  KG
+  LITRE
+  PIECE
+}
+
+enum TableStatus {
+  VACANT
+  OCCUPIED
+  RESERVED
+}
+
+enum TableOrderStatus {
+  OPEN
+  CLOSED
+  VOIDED
+}
+
+enum PaymentType {
+  CASH
+  CREDIT
+  CARD
+}
+
+enum RoomStatus {
+  VACANT
+  OCCUPIED
+}
+
+enum RoomStayStatus {
+  ACTIVE
+  CHECKED_OUT
+  CANCELLED
+}
+
+enum CreditSource {
+  TABLE_SALE
+  QUICK_SELL
+  ROOM_STAY
+}
+
+enum CreditStatus {
+  PENDING
+  PARTIAL
+  PAID
+  WRITTEN_OFF
+}
+
+model Profile {
+  id               String            @id @db.Uuid
+  role             Role
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  auditLogs        AuditLog[]
+  tableOrders      TableOrder[]
+  quickSales       QuickSale[]
+  voidedItems      OrderItem[]       @relation("VoidedItems")
+  recordedPayments CreditPayment[]
+  purchases        Purchase[]
+  stockAdjustments StockAdjustment[]
+  roomStays        RoomStay[]
+
+  @@map("profiles")
+}
+
+model MenuCategory {
+  id        String     @id @default(uuid()) @db.Uuid
+  name      String     @unique
+  isKitchen Boolean    @default(false) @map("is_kitchen")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  menuItems MenuItem[]
+
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id         String       @id @default(uuid()) @db.Uuid
+  name       String       @unique
+  price      Decimal      @db.Decimal(10, 2)
+  categoryId String       @map("category_id") @db.Uuid
+  category   MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  recipe     Recipe?
+  orderItems OrderItem[]
+
+  @@map("menu_items")
+}
+
+model RawItem {
+  id               String            @id @default(uuid()) @db.Uuid
+  name             String            @unique
+  unit             Unit
+  currentStock     Decimal           @default(0) @map("current_stock") @db.Decimal(10, 3)
+  minThreshold     Decimal           @default(0) @map("min_threshold") @db.Decimal(10, 3)
+  costPrice        Decimal           @map("cost_price") @db.Decimal(10, 2)
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  recipeLines      RecipeLine[]
+  purchases        Purchase[]
+  stockAdjustments StockAdjustment[]
+
+  @@map("raw_items")
+}
+
+model Recipe {
+  id         String       @id @default(uuid()) @db.Uuid
+  menuItemId String       @unique @map("menu_item_id") @db.Uuid
+  menuItem   MenuItem     @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  lines      RecipeLine[]
+
+  @@map("recipes")
+}
+
+model RecipeLine {
+  id         String   @id @default(uuid()) @db.Uuid
+  recipeId   String   @map("recipe_id") @db.Uuid
+  recipe     Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  rawItemId  String   @map("raw_item_id") @db.Uuid
+  rawItem    RawItem  @relation(fields: [rawItemId], references: [id], onDelete: Restrict)
+  qtyPerUnit Decimal  @map("qty_per_unit") @db.Decimal(10, 3)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([recipeId, rawItemId])
+  @@map("recipe_lines")
+}
+
+model RestaurantTable {
+  id         String       @id @default(uuid()) @db.Uuid
+  name       String       @unique
+  status     TableStatus  @default(VACANT)
+  currentTag String?      @map("current_tag")
+  version    Int          @default(1)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  orders     TableOrder[]
+
+  @@map("restaurant_tables")
+}
+
+model TableOrder {
+  id         String           @id @default(uuid()) @db.Uuid
+  tableId    String           @map("table_id") @db.Uuid
+  table      RestaurantTable  @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  status     TableOrderStatus @default(OPEN)
+  openedById String           @map("opened_by_id") @db.Uuid
+  openedBy   Profile          @relation(fields: [openedById], references: [id], onDelete: Restrict)
+  openedAt   DateTime         @default(now()) @map("opened_at")
+  closedAt   DateTime?        @map("closed_at")
+  version    Int              @default(1)
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+  items      OrderItem[]
+
+  @@index([status])
+  @@map("table_orders")
+}
+
+model OrderItem {
+  id             String      @id @default(uuid()) @db.Uuid
+  tableOrderId   String?     @map("table_order_id") @db.Uuid
+  tableOrder     TableOrder? @relation(fields: [tableOrderId], references: [id], onDelete: Cascade)
+  quickSaleId    String?     @map("quick_sale_id") @db.Uuid
+  quickSale      QuickSale?  @relation(fields: [quickSaleId], references: [id], onDelete: Cascade)
+  roomStayId     String?     @map("room_stay_id") @db.Uuid
+  roomStay       RoomStay?   @relation(fields: [roomStayId], references: [id], onDelete: Cascade)
+  menuItemId     String      @map("menu_item_id") @db.Uuid
+  menuItem       MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  qty            Int
+  unitPrice      Decimal     @map("unit_price") @db.Decimal(10, 2)
+  rawQtyOverride Decimal?    @map("raw_qty_override") @db.Decimal(10, 3)
+  isVoid         Boolean     @default(false) @map("is_void")
+  voidedById     String?     @map("voided_by_id") @db.Uuid
+  voidedBy       Profile?    @relation("VoidedItems", fields: [voidedById], references: [id], onDelete: Restrict)
+  voidedAt       DateTime?   @map("voided_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  @@map("order_items")
+}
+
+model QuickSale {
+  id          String      @id @default(uuid()) @db.Uuid
+  paymentType PaymentType @map("payment_type")
+  subtotal    Decimal     @db.Decimal(10, 2)
+  discount    Decimal     @default(0) @db.Decimal(10, 2)
+  total       Decimal     @db.Decimal(10, 2)
+  cashierId   String      @map("cashier_id") @db.Uuid
+  cashier     Profile     @relation(fields: [cashierId], references: [id], onDelete: Restrict)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  items       OrderItem[]
+
+  @@map("quick_sales")
+}
+
+model Room {
+  id          String     @id @default(uuid()) @db.Uuid
+  name        String     @unique
+  nightlyRate Decimal    @map("nightly_rate") @db.Decimal(10, 2)
+  status      RoomStatus @default(VACANT)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  stays       RoomStay[]
+
+  @@map("rooms")
+}
+
+model RoomStay {
+  id               String         @id @default(uuid()) @db.Uuid
+  roomId           String         @map("room_id") @db.Uuid
+  room             Room           @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  guestName        String         @map("guest_name")
+  phone            String
+  idProof          String         @map("id_proof")
+  numGuests        Int            @map("num_guests")
+  checkIn          DateTime       @map("check_in")
+  expectedCheckOut DateTime       @map("expected_check_out")
+  actualCheckOut   DateTime?      @map("actual_check_out")
+  numNights        Int            @map("num_nights")
+  status           RoomStayStatus @default(ACTIVE)
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  orderItems       OrderItem[]
+  createdById      String?        @map("created_by_id") @db.Uuid
+  createdBy        Profile?       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@map("room_stays")
+}
+
+model CreditLedger {
+  id           String          @id @default(uuid()) @db.Uuid
+  customerName String          @map("customer_name")
+  phone        String
+  source       CreditSource
+  sourceId     String          @map("source_id") @db.Uuid
+  amount       Decimal         @db.Decimal(10, 2)
+  givenDate    DateTime        @map("given_date")
+  dueDate      DateTime        @map("due_date")
+  status       CreditStatus    @default(PENDING)
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+  payments     CreditPayment[]
+
+  @@index([phone])
+  @@index([dueDate])
+  @@map("credit_ledgers")
+}
+
+model CreditPayment {
+  id             String       @id @default(uuid()) @db.Uuid
+  creditLedgerId String       @map("credit_ledger_id") @db.Uuid
+  creditLedger   CreditLedger @relation(fields: [creditLedgerId], references: [id], onDelete: Cascade)
+  amount         Decimal      @db.Decimal(10, 2)
+  paidAt         DateTime     @default(now()) @map("paid_at")
+  recordedById   String       @map("recorded_by_id") @db.Uuid
+  recordedBy     Profile      @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@map("credit_payments")
+}
+
+model Purchase {
+  id           String   @id @default(uuid()) @db.Uuid
+  rawItemId    String   @map("raw_item_id") @db.Uuid
+  rawItem      RawItem  @relation(fields: [rawItemId], references: [id], onDelete: Restrict)
+  qty          Decimal  @db.Decimal(10, 3)
+  unitCost     Decimal  @map("unit_cost") @db.Decimal(10, 2)
+  totalCost    Decimal  @map("total_cost") @db.Decimal(10, 2)
+  supplierName String?  @map("supplier_name")
+  purchasedAt  DateTime @default(now()) @map("purchased_at")
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  recordedBy   Profile  @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("purchases")
+}
+
+model StockAdjustment {
+  id           String   @id @default(uuid()) @db.Uuid
+  rawItemId    String   @map("raw_item_id") @db.Uuid
+  rawItem      RawItem  @relation(fields: [rawItemId], references: [id], onDelete: Restrict)
+  qtyDelta     Decimal  @map("qty_delta") @db.Decimal(10, 3)
+  reason       String
+  adjustedById String   @map("adjusted_by_id") @db.Uuid
+  adjustedBy   Profile  @relation(fields: [adjustedById], references: [id], onDelete: Restrict)
+  adjustedAt   DateTime @default(now()) @map("adjusted_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("stock_adjustments")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  user       Profile  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  meta       Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
 }
