@@ -73,3 +73,47 @@ Run these commands in order from your terminal at the project root:
    ```bash
    npx prisma db seed
    ```
+
+## Backend Layer — Auth
+
+### Connection String Split
+To guarantee that Row Level Security (RLS) is active and enforced at runtime:
+1. **Superuser (`DATABASE_URL`)**: Points to the PostgreSQL database connecting as the `postgres` superuser. This URL is used exclusively by Prisma migrations (`npx prisma migrate dev`), CLI commands, and database seeding scripts (like `seed-profiles.ts`) to allow administrative operations.
+2. **App User (`APP_DATABASE_URL`)**: Points to the PostgreSQL database connecting as the restricted `app_user` login role. This role only has standard grants (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) on existing schemas, and is used by the Next.js running application in [src/lib/prisma.ts](file:///home/rabin/Documents/JDSekuwaRMS/jd-sekuwa-rms/src/lib/prisma.ts) for query execution. Connecting under this non-superuser role forces PostgreSQL to actively evaluate Row Level Security policies.
+
+### Postgres Session Context (`setSessionContext`)
+Row Level Security policies in PostgreSQL are triggered based on the session parameters `app.current_role` and `app.current_user_id`.
+- **Transaction Binding**: Because Prisma pools database connections and does not guarantee that subsequent queries reuse the same physical TCP connection, we **must** set these parameters inside a Prisma transaction (`$transaction`).
+- **Functionality**: The `setSessionContext(tx, role, userId)` helper uses PostgreSQL's secure parameter function:
+  ```typescript
+  await tx.$executeRaw`SELECT set_config('app.current_role', ${role}, true);`;
+  await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}, true);`;
+  ```
+  Specifying `true` as the third parameter bounds the configuration life to the local transaction, preventing parameter leakage between requests sharing the connection pool.
+
+### Auth & Gating Gating Boundaries
+- **Fast Routing Gating (Middleware)**: Next.js Middleware runs in the Edge Runtime and cannot query the database. For UX speed, it performs a fast pre-filter by inspecting the user's role from their Supabase Auth JWT token's `app_metadata.role` (e.g. `/api/*` and `/(app)/*` gating) in [src/middleware.ts](file:///home/rabin/Documents/JDSekuwaRMS/jd-sekuwa-rms/src/middleware.ts). Because `app_metadata` cannot be edited client-side, it is secure against self-escalation.
+- **True Security Boundary (`requireRole` & RLS)**: The middleware is a UX route pre-filter and **not** the true security boundary. The real enforcement is executed server-side (Node.js runtime) at the database layer where:
+  - `requireRole(allowedRoles)` queries the live `Profile` row in PostgreSQL.
+  - PostgreSQL RLS filters records on connection queries directly.
+  Both processes bypass JWT claims to ensure authentic, server-controlled authorization state.
+
+### Role-to-Route Gating & Permissions
+| Role | Page Route / API Prefix | Database Action Permissions |
+| :--- | :--- | :--- |
+| **SUPER_ADMIN** | All Routes | Unrestricted read/write bypass permissions on all tables. |
+| **ADMIN** | All Routes except system configuration / Profile modifications | Read/write access to all tables except system settings and modifying roles/users. |
+| **WORKER** | `/pos`, `/rooms`, `/tables`, `/api/pos/*`, `/api/rooms/*` | - Select/Update/Insert on own `table_orders`, `order_items`, `quick_sales`, `room_stays`. <br>- Select-only on `restaurant_tables`, `rooms`, `menu_categories`, `menu_items`, `recipes`, `recipe_lines`, `credit_ledgers`, `credit_payments`. <br>- **Denied entirely** on `raw_items` (queries must go through `raw_items_worker_view` to hide `cost_price`), `purchases`, `stock_adjustments`. <br>- Insert-only on `audit_logs` (no reads). |
+
+### Additional Commands to Run
+
+1. **Apply App Role Migration:**
+   ```bash
+   npx prisma migrate dev
+   ```
+
+2. **Seed Local Profiles:**
+   ```bash
+   npx tsx prisma/seed-profiles.ts
+   ```
+
