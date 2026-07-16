@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
+import { useQzTray } from "@/hooks/use-qz-tray";
 import { PageHeader } from "@/components/ui/page-header";
+import { getMenuItemImage } from "@/lib/menu-images";
 import { Modal } from "@/components/ui/modal-sheet";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Plus, Minus, Trash2, ShoppingCart, Loader2, Printer, XCircle } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingCart, Loader2, Printer, XCircle, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Category {
@@ -20,6 +22,7 @@ interface MenuItem {
   name: string;
   price: string;
   categoryId: string;
+  imageUrl?: string | null;
 }
 
 interface MenuData {
@@ -44,7 +47,7 @@ interface ReceiptItem {
 
 interface ReceiptPayload {
   id: string;
-  type: string;
+  type: "TABLE_ORDER" | "QUICK_SALE";
   tableName: string | null;
   tag: string | null;
   cashierName: string;
@@ -74,6 +77,39 @@ export default function PosPage() {
   // Receipt Modal State
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null);
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+
+  // Printer mapping configurations & hooks
+  const [receptionPrinter, setReceptionPrinter] = useState("");
+  const [whatsappPhone, setWhatsappPhone] = useState("");
+
+  const { isConnected: isQzConnected, printReceipt } = useQzTray();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("jd_sekuwa_printers");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.receptionPrinter) setReceptionPrinter(parsed.receptionPrinter);
+      } catch (e) {}
+    }
+  }, []);
+
+  const handleWhatsAppShare = () => {
+    if (!receipt) return;
+    const text = `*JD SEKUWA HOUSE*
+Invoice ID: ${receipt.id.slice(0, 8)}
+Table: ${receipt.tableName || "POS"}
+Cashier: ${receipt.cashierName}
+Total Settled: Rs. ${receipt.total}
+
+Items:
+${receipt.items.map(i => `- ${i.name} x ${i.qty}: Rs. ${i.total}`).join("\n")}
+
+Thank you for dining with us!`;
+    const url = `https://api.whatsapp.com/send?phone=${whatsappPhone}&text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
+  };
 
   // 1. Fetch Categories & Menu Items for grid
   const { data: menuData, isLoading: isMenuLoading } = useQuery<MenuData>({
@@ -122,6 +158,16 @@ export default function PosPage() {
       // Load receipt
       setReceiptSaleId(data.id);
       setReceiptModalOpen(true);
+
+      // Auto-print receipt if printer bridge connected
+      if (isQzConnected && receptionPrinter) {
+        fetch(`/api/pos/receipt/${data.id}`)
+          .then(res => res.json())
+          .then(receiptPayload => {
+            printReceipt(receptionPrinter, receiptPayload);
+          })
+          .catch(err => console.warn("[Receipt print failed]:", err.message));
+      }
     },
     onError: (err: any) => {
       setCheckoutError(err.message || "Failed to process sale");
@@ -266,25 +312,64 @@ export default function PosPage() {
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               {filteredItems.map((item) => {
                 const inCart = cart.find((i) => i.menuItemId === item.id);
+                const categoryObj = categories.find((c) => c.id === item.categoryId);
+                const categoryName = categoryObj ? categoryObj.name : "";
+                const imageUrl = item.imageUrl || getMenuItemImage(item.name, categoryName);
+
                 return (
                   <div
                     key={item.id}
                     onClick={() => handleAddToCart(item)}
                     className={cn(
-                      "rounded-card border bg-card p-4 hover:shadow-md cursor-pointer flex flex-col justify-between h-[125px] transition-all relative select-none",
-                      inCart ? "border-primary ring-1 ring-primary/20" : "border-border"
+                      "group rounded-card border overflow-hidden bg-card hover:shadow-lg cursor-pointer flex flex-col justify-between h-[190px] transition-all duration-300 relative select-none transform active:scale-[0.98]",
+                      inCart
+                        ? "border-primary ring-1 ring-primary/20 shadow-sm"
+                        : "border-border hover:border-border-hover"
                     )}
                   >
-                    <div>
-                      <h4 className="font-bold text-ink text-xs line-clamp-2">{item.name}</h4>
+                    {/* Visual Card Image Header */}
+                    <div className="h-[105px] w-full relative overflow-hidden bg-surface-sunken">
+                      <img
+                        src={imageUrl}
+                        alt={item.name}
+                        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                      {categoryName && (
+                        <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-xs text-[8px] font-black text-white uppercase tracking-wider select-none">
+                          {categoryName}
+                        </span>
+                      )}
+                      
+                      {/* Floating Indicator Bubble */}
+                      {inCart && (
+                        <div className="absolute top-2.5 right-2.5 h-5 w-5 rounded-full bg-primary text-white flex items-center justify-center text-[10px] font-black shadow-sm animate-scale-up">
+                          {inCart.qty}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between mt-3">
-                      <span className="text-xs font-bold text-ink tabular-nums">
-                        Rs. {Number(item.price).toFixed(0)}
-                      </span>
-                      <span className="h-6 w-6 rounded-control bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">
-                        {inCart ? inCart.qty : <Plus className="h-3.5 w-3.5" />}
-                      </span>
+
+                    {/* Details Info Footer */}
+                    <div className="p-3.5 flex-1 flex flex-col justify-between">
+                      <h4 className="font-extrabold text-ink text-xs line-clamp-1 leading-tight group-hover:text-primary transition-colors duration-200" title={item.name}>
+                        {item.name}
+                      </h4>
+                      <div className="flex items-center justify-between mt-2 select-none">
+                        <span className="text-xs font-black text-ink font-mono tabular-nums">
+                          Rs. {Number(item.price).toFixed(0)}
+                        </span>
+                        
+                        <span className={cn(
+                          "h-6 px-2.5 rounded-control flex items-center gap-1 text-[10px] font-black shrink-0 transition-colors duration-200",
+                          inCart
+                            ? "bg-primary text-white"
+                            : "bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white"
+                        )}>
+                          <Plus className="h-3 w-3 shrink-0" />
+                          <span>Add</span>
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -564,14 +649,50 @@ export default function PosPage() {
               </div>
             </div>
 
+            {/* WhatsApp Share Form */}
+            <div className="flex items-center gap-2 border-t border-border pt-4">
+              <input
+                type="tel"
+                placeholder="WhatsApp Phone (e.g. 97798XXXXXXXX)"
+                value={whatsappPhone}
+                onChange={(e) => setWhatsappPhone(e.target.value)}
+                className="flex-1 rounded-control border border-border px-3 py-1.5 text-xs text-ink outline-none focus:border-primary"
+              />
+              <button
+                onClick={handleWhatsAppShare}
+                disabled={!whatsappPhone}
+                className="px-3.5 py-1.5 bg-success hover:bg-success-hover text-white text-xs font-bold rounded-control disabled:opacity-50 transition-colors"
+              >
+                Share Invoice
+              </button>
+            </div>
+
             <div className="flex gap-2 justify-center">
+              {isQzConnected && receptionPrinter ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (receipt) printReceipt(receptionPrinter, receipt);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-white text-xs font-bold rounded-control hover:bg-primary-hover transition-colors"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Print Thermal Bill</span>
+                </button>
+              ) : (
+                <span className="text-[10px] text-warning font-semibold italic flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>Printer bridge disconnected (Fallback to browser print)</span>
+                </span>
+              )}
+
               <button
                 type="button"
                 onClick={() => window.print()}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-sunken hover:bg-border border border-border text-ink-muted hover:text-ink text-xs font-semibold rounded-control transition-colors"
               >
                 <Printer className="h-4 w-4" />
-                <span>Print Invoice</span>
+                <span>Browser Print</span>
               </button>
             </div>
           </div>

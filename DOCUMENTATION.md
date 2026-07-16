@@ -290,6 +290,25 @@ Because menu recipes and ingredient weights can change over time, resolving stoc
    npx vitest run src/services/print.test.ts src/services/email.test.ts
    ```
 
+## Frontend Layer — Printing & QZ Tray
+
+### Client-Side print bridge setup
+To enable silent thermal printing of KOTs and sales receipts on local cash register hardware, the client workstation must run the QZ Tray application in the background:
+1. **Download and Install QZ Tray**: Download from [qz.io/download](https://qz.io/download/) and install Java if required.
+2. **Launch QZ Tray**: Make sure the application is running. It exposes a local WebSocket server on:
+   - `ws://localhost:8182` (for HTTP sessions)
+   - `wss://localhost:8181` (for HTTPS sessions)
+3. **Configure Terminal Printers**:
+   - Access the **Settings & Parameters** page as an Admin / Super Admin.
+   - The settings page will auto-scan local printers connected to your terminal PC.
+   - Map your thermal reception printer and kitchen printer and click **Save Settings** to persist the mapping in browser `LocalStorage` (`jd_sekuwa_printers` key).
+4. **Silent Printing Firing**:
+   - The POS page and Tables page automatically check connection status on page load.
+   - When a waiter adds new kitchen items, the system compiles the KOT and dispatches it silently to the mapped Kitchen Printer.
+   - When a cashier settles payment, the receipt is printed silently to the Reception Printer.
+5. **Fail-Safe Browser Fallback**:
+   - If the QZ Tray WebSocket is disconnected or offline, the system displays a warning badge and automatically falls back to triggering browser print views (`window.print()`).
+
 ## Frontend Layer — Design System
 
 ### Custom Typography & Styling Tokens
@@ -391,7 +410,23 @@ Because menu recipes and ingredient weights can change over time, resolving stoc
 - **Filter Rails**: The purchase history is populated via `GET /api/purchases` (Stage B-6). Admins can filter logs based on start/end dates and raw ingredient types, automatically reloading query caches.
 - **Acquisitions Entry**: Selecting raw ingredients and inputting quantities and unit costs via the **Record Purchase** modal updates stock limits atomically via `POST /api/purchases`, invalidating inventory and dashboard cached records.
 
+## Frontend Layer — Reports
 
+### Tab-Based Navigation & Date Range Filters
+- **Report Tabs**: The reports page is organized into 7 tabs — Daily Sales, Sales Trend, Item-wise Sales, Purchase Costs, Credit Outstanding, Room Occupancy, and Profit Summary. Each tab lazily loads its data only when selected.
+- **Date Range Pickers**: Tabs that operate on date ranges (Sales Trend, Item-wise Sales, Purchase Costs, Room Occupancy, Profit Summary) display a shared date picker defaulting to the last 30 days.
+
+### Recharts Visualizations
+- **Daily Sales**: StatCards showing today's totals (Quick-Sell, Table, Room, Grand Total) plus a vertical bar chart breaking down revenue by sales channel.
+- **Sales Trend**: Multi-series area chart showing daily total, quick-sell, table, and room revenues over the selected date range via `GET /api/reports/sales-trend`.
+- **Item-wise Sales**: Side-by-side horizontal bar charts for Top 5 Best Sellers and Top 5 Slow Movers via `GET /api/reports/item-wise-sales`.
+- **Purchase Costs**: Grand total StatCard plus a horizontal bar chart breaking down costs per raw ingredient via `GET /api/reports/purchases`.
+- **Credit Outstanding**: Four StatCards (Total Outstanding, Overdue, Written Off, Active Customers) via `GET /api/reports/credit-outstanding`.
+- **Room Occupancy**: Four StatCards (Total Rooms, Currently Occupied with occupancy percentage, Nights Sold, Room Revenue) via `GET /api/reports/room-occupancy`.
+
+### Profit Summary (Super Admin Only)
+- **Visibility Gating**: The Profit Summary tab is only rendered in the tab bar when the logged-in user holds the `SUPER_ADMIN` role. The backend endpoint `/api/reports/profit-summary` also rejects non-Super-Admin callers.
+- **Presentation**: Three StatCards (Total Revenue, Total Purchase Costs, Gross Profit with margin percentage) and a vertical bar chart comparing Revenue vs Costs vs Gross Profit.
 
 
 

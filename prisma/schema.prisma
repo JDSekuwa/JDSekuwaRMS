@@ -97,6 +97,7 @@ model MenuItem {
   category   MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   createdAt  DateTime     @default(now()) @map("created_at")
   updatedAt  DateTime     @updatedAt @map("updated_at")
+  imageUrl   String?      @map("image_url")
   recipe     Recipe?
   orderItems OrderItem[]
 
@@ -150,6 +151,7 @@ model RestaurantTable {
   status     TableStatus  @default(VACANT)
   currentTag String?      @map("current_tag")
   version    Int          @default(1)
+  imageUrl   String?      @map("image_url")
   createdAt  DateTime     @default(now()) @map("created_at")
   updatedAt  DateTime     @updatedAt @map("updated_at")
   orders     TableOrder[]
@@ -224,6 +226,7 @@ model Room {
   nightlyRate Decimal    @map("nightly_rate") @db.Decimal(10, 2)
   status      RoomStatus @default(VACANT)
   version     Int        @default(1)
+  imageUrl    String?    @map("image_url")
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
   stays       RoomStay[]

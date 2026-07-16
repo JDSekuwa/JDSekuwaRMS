@@ -19,7 +19,8 @@ import {
   Bell,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  BookOpen
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { href: "/credit", label: "Credit Ledger", icon: CreditCard, roles: ["SUPER_ADMIN", "ADMIN", "WORKER"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["SUPER_ADMIN", "ADMIN"] },
   { href: "/users", label: "Users Config", icon: Users, roles: ["SUPER_ADMIN"] },
+  { href: "/menu", label: "Menu & Recipes", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN"] },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
 ];
 

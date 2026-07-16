@@ -1,71 +1,1576 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { createBrowserClient } from "@supabase/ssr";
+import { useAuth } from "@/lib/auth-context";
+import { useQzTray } from "@/hooks/use-qz-tray";
+import { getMenuItemImage } from "@/lib/menu-images";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Coffee, ChevronRight, UserPlus } from "lucide-react";
+import { Modal, Sheet } from "@/components/ui/modal-sheet";
+import { cn } from "@/lib/utils";
+import {
+  Coffee,
+  ChevronRight,
+  Plus,
+  Minus,
+  Trash2,
+  RefreshCw,
+  Loader2,
+  AlertTriangle,
+  Move,
+  GitMerge,
+  CreditCard,
+  Utensils,
+  UserCheck,
+  CheckCircle,
+  Printer,
+  XCircle,
+  Clock,
+  Sparkles
+} from "lucide-react";
 
-export default function TablesPlaceholder() {
-  const mockTables = [
-    { id: 1, name: "Table 1", status: "OCCUPIED", tag: "Lunch Order", total: "Rs. 2,100" },
-    { id: 2, name: "Table 2", status: "VACANT", tag: null, total: null },
-    { id: 3, name: "Table 3", status: "VACANT", tag: null, total: null },
-    { id: 4, name: "Table 4", status: "RESERVED", tag: "Reservation 7 PM", total: null },
-    { id: 5, name: "Table 5", status: "OCCUPIED", tag: "Drinks only", total: "Rs. 840" },
-    { id: 6, name: "Table 6", status: "VACANT", tag: null, total: null },
-    { id: 7, name: "Table 7", status: "VACANT", tag: null, total: null },
-    { id: 8, name: "Table 8", status: "OCCUPIED", tag: "Family", total: "Rs. 4,650" },
-  ];
+/* ───────────────────────────── TYPES ───────────────────────────── */
+
+interface TableSummary {
+  id: string;
+  name: string;
+  status: "VACANT" | "OCCUPIED" | "RESERVED";
+  currentTag: string | null;
+  version: number;
+  openOrderTotal: number;
+}
+
+interface MenuItem {
+  id: string;
+  name: string;
+  price: string;
+  categoryId: string;
+  imageUrl?: string | null;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  isKitchen: boolean;
+}
+
+interface MenuData {
+  categories: Category[];
+  menuItems: MenuItem[];
+}
+
+interface OrderItemPayload {
+  id: string;
+  qty: number;
+  unitPrice: string;
+  isVoid: boolean;
+  menuItem: MenuItem;
+}
+
+interface TableOrderPayload {
+  id: string;
+  status: "OPEN" | "CLOSED" | "VOIDED";
+  version: number;
+  openedAt: string;
+  openedById: string;
+  items: OrderItemPayload[];
+}
+
+interface TableDetail {
+  id: string;
+  name: string;
+  status: "VACANT" | "OCCUPIED" | "RESERVED";
+  currentTag: string | null;
+  version: number;
+  orders: TableOrderPayload[];
+}
+
+interface CartItem {
+  menuItemId: string;
+  name: string;
+  price: number;
+  qty: number;
+}
+
+interface ReceiptItem {
+  id: string;
+  name: string;
+  qty: number;
+  unitPrice: number;
+  total: number;
+}
+
+interface ReceiptPayload {
+  id: string;
+  type: "TABLE_ORDER" | "QUICK_SALE";
+  tableName: string | null;
+  tag: string | null;
+  cashierName: string;
+  openedAt: string;
+  closedAt: string | null;
+  paymentType: string | null;
+  subtotal: number;
+  discount: number;
+  total: number;
+  items: ReceiptItem[];
+}
+
+/* ═══════════════════════════ COMPONENT ══════════════════════════ */
+
+export default function TablesPage() {
+  const { role } = useAuth();
+  const queryClient = useQueryClient();
+  const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
+
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
+  // Layout selection states
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  
+  // Modals & Panels visibility state
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [openOrderModalOpen, setOpenOrderModalOpen] = useState(false);
+  const [addItemsModalOpen, setAddItemsModalOpen] = useState(false);
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [settleModalOpen, setSettleModalOpen] = useState(false);
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+
+  // Operational details states
+  const [guestTag, setGuestTag] = useState("");
+  const [tempCart, setTempCart] = useState<CartItem[]>([]);
+  const [selectedCatId, setSelectedCatId] = useState<string>("ALL");
+  const [targetTableId, setTargetTableId] = useState<string>("");
+  const [paymentType, setPaymentType] = useState<"CASH" | "CARD" | "CREDIT">("CASH");
+  const [discount, setDiscount] = useState<number>(0);
+  const [customerName, setCustomerName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
+
+  // General operational status alerts
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [conflictWarning, setConflictWarning] = useState<string | null>(null);
+
+  // Printer mapping configurations & hooks
+  const [kitchenPrinter, setKitchenPrinter] = useState("");
+  const [receptionPrinter, setReceptionPrinter] = useState("");
+  const [whatsappPhone, setWhatsappPhone] = useState("");
+
+  const { isConnected: isQzConnected, printKot, printReceipt } = useQzTray();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("jd_sekuwa_printers");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.kitchenPrinter) setKitchenPrinter(parsed.kitchenPrinter);
+        if (parsed.receptionPrinter) setReceptionPrinter(parsed.receptionPrinter);
+      } catch (e) {}
+    }
+  }, []);
+
+  const handleWhatsAppShare = () => {
+    if (!receipt) return;
+    const text = `*JD SEKUWA HOUSE*
+Invoice ID: ${receipt.id.slice(0, 8)}
+Table: ${receipt.tableName || "POS"}
+Cashier: ${receipt.cashierName}
+Total Settled: Rs. ${receipt.total}
+
+Items:
+${receipt.items.map(i => `- ${i.name} x ${i.qty}: Rs. ${i.total}`).join("\n")}
+
+Thank you for dining with us!`;
+    const url = `https://api.whatsapp.com/send?phone=${whatsappPhone}&text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
+  };
+
+  /* ── 1. QUERIES ────────────────────────────────────────────────── */
+
+  // Fetch list of tables
+  const { data: tables = [], isLoading: isTablesLoading, refetch: refetchTables } = useQuery<TableSummary[]>({
+    queryKey: ["tables"],
+    queryFn: async () => {
+      const res = await fetch("/api/tables");
+      if (!res.ok) throw new Error("Failed to load tables list");
+      return res.json();
+    }
+  });
+
+  // Fetch single table detail including open order
+  const { data: tableDetail, isLoading: isDetailLoading, refetch: refetchDetail } = useQuery<TableDetail>({
+    queryKey: ["table-detail", selectedTableId],
+    queryFn: async () => {
+      const res = await fetch(`/api/tables/${selectedTableId}`);
+      if (!res.ok) throw new Error("Failed to retrieve table detail");
+      return res.json();
+    },
+    enabled: !!selectedTableId
+  });
+
+  // Fetch menu options for append menu items grid
+  const { data: menuData } = useQuery<MenuData>({
+    queryKey: ["pos-menu"],
+    queryFn: async () => {
+      const res = await fetch("/api/pos/menu");
+      if (!res.ok) throw new Error("Failed to retrieve menu items");
+      return res.json();
+    },
+    enabled: addItemsModalOpen
+  });
+
+  // Fetch receipt details for printer dialogs
+  const { data: receipt, isLoading: isReceiptLoading } = useQuery<ReceiptPayload>({
+    queryKey: ["receipt", receiptOrderId],
+    queryFn: async () => {
+      const res = await fetch(`/api/pos/receipt/${receiptOrderId}`);
+      if (!res.ok) throw new Error("Failed to fetch receipt payload");
+      return res.json();
+    },
+    enabled: !!receiptOrderId
+  });
+
+  /* ── 2. REALTIME LISTENERS ──────────────────────────────────────── */
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("tables-page-updates")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "restaurant_tables" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["tables"] });
+          if (selectedTableId) queryClient.invalidateQueries({ queryKey: ["table-detail", selectedTableId] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "table_orders" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["tables"] });
+          if (selectedTableId) queryClient.invalidateQueries({ queryKey: ["table-detail", selectedTableId] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_items" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["tables"] });
+          if (selectedTableId) queryClient.invalidateQueries({ queryKey: ["table-detail", selectedTableId] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, queryClient, selectedTableId]);
+
+  /* ── 3. MUTATIONS ──────────────────────────────────────────────── */
+
+  // Helper handling HTTP conflict status codes
+  const handleMutationError = (err: any) => {
+    if (err.message.includes("409") || err.message.toLowerCase().includes("conflict") || err.message.toLowerCase().includes("version")) {
+      setConflictWarning("Table operations conflict: Another waiter has updated this table. UI has refreshed.");
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+      if (selectedTableId) queryClient.invalidateQueries({ queryKey: ["table-detail", selectedTableId] });
+    } else {
+      setActionError(err.message || "Operation failed.");
+    }
+  };
+
+  // Open Table Order
+  const openOrderMutation = useMutation({
+    mutationFn: async ({ id, tag }: { id: string; tag: string }) => {
+      const res = await fetch(`/api/tables/${id}/open`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tag })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Open failed (${res.status})`);
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setOpenOrderModalOpen(false);
+      setGuestTag("");
+      setActionError(null);
+      // Select and open the sidebar sheet details
+      setSelectedTableId(selectedTableId);
+      setDetailOpen(true);
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+    },
+    onError: handleMutationError
+  });
+
+  // Add Items to Table Order
+  const addItemsMutation = useMutation({
+    mutationFn: async ({ id, items }: { id: string; items: Array<{ menuItemId: string; qty: number }> }) => {
+      const res = await fetch(`/api/tables/${id}/add-items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to add items (${res.status})`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setAddItemsModalOpen(false);
+      setTempCart([]);
+      setActionError(null);
+      
+      // Auto-trigger KOT print if printer bridge connected
+      if (selectedTableId) {
+        refetchDetail();
+        if (isQzConnected && kitchenPrinter) {
+          fetch(`/api/tables/${selectedTableId}/kot`)
+            .then(res => res.json())
+            .then(kotPayload => {
+              printKot(kitchenPrinter, kotPayload);
+            })
+            .catch(err => console.warn("[KOT print failed]:", err.message));
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+    },
+    onError: handleMutationError
+  });
+
+  // Void Order Item from open ticket
+  const voidItemMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      const res = await fetch(`/api/order-items/${itemId}/void`, {
+        method: "POST"
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Void item failed (${res.status})`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setActionError(null);
+      if (selectedTableId) refetchDetail();
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+    },
+    onError: handleMutationError
+  });
+
+  // Move Table Order
+  const moveMutation = useMutation({
+    mutationFn: async ({ id, targetTableId }: { id: string; targetTableId: string }) => {
+      const res = await fetch(`/api/tables/${id}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetTableId })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to transfer table (${res.status})`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setMoveModalOpen(false);
+      setTargetTableId("");
+      setActionError(null);
+      setDetailOpen(false);
+      setSelectedTableId(null);
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+    },
+    onError: handleMutationError
+  });
+
+  // Merge Table Orders
+  const mergeMutation = useMutation({
+    mutationFn: async ({ id, targetTableId }: { id: string; targetTableId: string }) => {
+      const res = await fetch(`/api/tables/${id}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetTableId })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to combine tables (${res.status})`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setMergeModalOpen(false);
+      setTargetTableId("");
+      setActionError(null);
+      setDetailOpen(false);
+      setSelectedTableId(null);
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+    },
+    onError: handleMutationError
+  });
+
+  // Settle Table Order & Close table release
+  const closeOrderMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: any }) => {
+      const res = await fetch(`/api/tables/${id}/close`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Settle bill failed (${res.status})`);
+      }
+      return res.json();
+    },
+    onSuccess: (data, variables) => {
+      setSettleModalOpen(false);
+      setDiscount(0);
+      setCustomerName("");
+      setPhone("");
+      setActionError(null);
+      setDetailOpen(false);
+
+      // Resolve tableOrder ID to trigger print dialog
+      const openOrder = tableDetail?.orders[0];
+      if (openOrder) {
+        setReceiptOrderId(openOrder.id);
+        setReceiptModalOpen(true);
+
+        // Auto-print receipt if printer bridge connected
+        if (isQzConnected && receptionPrinter) {
+          fetch(`/api/pos/receipt/${openOrder.id}`)
+            .then(res => res.json())
+            .then(receiptPayload => {
+              printReceipt(receptionPrinter, receiptPayload);
+            })
+            .catch(err => console.warn("[Receipt print failed]:", err.message));
+        }
+      }
+
+      setSelectedTableId(null);
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: handleMutationError
+  });
+
+  /* ── 4. CART HELPERS ────────────────────────────────────────────── */
+
+  const handleAddToCart = (item: MenuItem) => {
+    const priceNum = parseFloat(item.price);
+    const existing = tempCart.find((i) => i.menuItemId === item.id);
+    if (existing) {
+      setTempCart(
+        tempCart.map((i) =>
+          i.menuItemId === item.id ? { ...i, qty: i.qty + 1 } : i
+        )
+      );
+    } else {
+      setTempCart([...tempCart, { menuItemId: item.id, name: item.name, price: priceNum, qty: 1 }]);
+    }
+  };
+
+  const handleUpdateCartQty = (menuItemId: string, delta: number) => {
+    const item = tempCart.find((i) => i.menuItemId === menuItemId);
+    if (!item) return;
+
+    const nextQty = item.qty + delta;
+    if (nextQty <= 0) {
+      setTempCart(tempCart.filter((i) => i.menuItemId !== menuItemId));
+    } else {
+      setTempCart(
+        tempCart.map((i) =>
+          i.menuItemId === menuItemId ? { ...i, qty: nextQty } : i
+        )
+      );
+    }
+  };
+
+  /* ── 5. RENDER LOGIC ────────────────────────────────────────────── */
+
+  const activeOrder = tableDetail?.orders[0];
+  const activeItems = activeOrder?.items.filter(i => !i.isVoid) || [];
+  
+  const subtotal = activeItems.reduce(
+    (sum, item) => sum + Number(item.qty) * Number(item.unitPrice),
+    0
+  );
+  
+  const finalTotal = Math.max(0, subtotal - (isAdmin ? discount : 0));
+
+  // Dine-in Tables metrics calculations
+  const occupiedTables = tables.filter((t) => t.status === "OCCUPIED").length;
+  const reservedTables = tables.filter((t) => t.status === "RESERVED").length;
+  const vacantTables = tables.filter((t) => t.status === "VACANT").length;
+  const totalTablesCount = tables.length;
+  const tableOccupancyPercent = totalTablesCount > 0 ? Math.round((occupiedTables / totalTablesCount) * 100) : 0;
+  const tableReservedPercent = totalTablesCount > 0 ? Math.round((reservedTables / totalTablesCount) * 100) : 0;
+  const tableVacantPercent = totalTablesCount > 0 ? Math.round((vacantTables / totalTablesCount) * 100) : 0;
+
+  const filteredMenuItems = menuData?.menuItems.filter(item => {
+    if (selectedCatId === "ALL") return true;
+    return item.categoryId === selectedCatId;
+  }) || [];
 
   return (
     <div className="space-y-6">
+      {/* HEADER WITH REALTIME BADGE */}
       <PageHeader
         title="Table Sales & Booking"
-        description="Live view of restaurant tables, occupancies, and running totals."
+        description="Monitor active tables, process floor bills, transfer table tickets, and combine dine-in accounts."
         actions={
-          <button className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover transition-colors">
-            <UserPlus className="h-4 w-4" />
-            <span>Book Table</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-success/15 text-success rounded-full text-[10px] font-bold tracking-wide uppercase border border-success/20 select-none shadow-xs">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-success"></span>
+              </span>
+              <span>Realtime Connected</span>
+            </div>
+
+            <button
+              onClick={() => refetchTables()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-sunken hover:bg-border border border-border text-ink hover:text-primary text-xs font-semibold rounded-control transition-all duration-200 select-none shadow-xs active:scale-[0.98]"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>Refresh Floor</span>
+            </button>
+          </div>
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {mockTables.map((table) => (
-          <div
-            key={table.id}
-            className="rounded-card border border-border bg-card p-5 flex flex-col justify-between h-[150px] shadow-xs hover:shadow-md transition-shadow relative overflow-hidden group"
-          >
-            {/* Upper Info */}
-            <div className="flex items-start justify-between">
-              <div>
-                <h4 className="font-bold text-ink text-base">{table.name}</h4>
-                {table.tag && <p className="text-xs text-ink-muted mt-0.5">{table.tag}</p>}
+      {/* FLOOR OCCUPANCY SUMMARY — STAT TILES */}
+      {tables.length > 0 && (
+        <div className="animate-fade-in-up space-y-3">
+          {/* Stat Tiles Row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* Total Tables */}
+            <div className="relative rounded-card overflow-hidden border border-border shadow-sm group">
+              <div
+                className="absolute inset-0 bg-cover bg-center opacity-20 group-hover:opacity-30 transition-opacity duration-500"
+                style={{ backgroundImage: `url('https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&q=80')` }}
+              />
+              <div className="relative p-4 space-y-1.5 bg-gradient-to-br from-card/90 to-card/70">
+                <p className="text-[9px] font-black text-ink-muted uppercase tracking-widest">Total Tables</p>
+                <p className="text-3xl font-black text-ink tabular-nums">{totalTablesCount}</p>
+                <p className="text-[9px] font-bold text-ink-muted/60">On active floor</p>
               </div>
-              <Coffee className={`h-5 w-5 ${table.status === "OCCUPIED" ? "text-primary" : "text-ink-muted/40"}`} />
             </div>
 
-            {/* Bottom Actions/Details */}
-            <div className="flex items-end justify-between mt-4">
-              <div>
-                <StatusBadge status={table.status} />
-                {table.total && (
-                  <p className="text-xs font-bold text-ink mt-1.5 tabular-nums">{table.total}</p>
-                )}
+            {/* Vacant */}
+            <div className="relative rounded-card overflow-hidden border border-success/30 shadow-sm group">
+              <div
+                className="absolute inset-0 bg-cover bg-center opacity-15 group-hover:opacity-25 transition-opacity duration-500"
+                style={{ backgroundImage: `url('https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&q=80')` }}
+              />
+              <div className="relative p-4 space-y-1.5 bg-gradient-to-br from-success/5 to-success/[0.02]">
+                <p className="text-[9px] font-black text-success/80 uppercase tracking-widest">Vacant</p>
+                <p className="text-3xl font-black text-success tabular-nums">{vacantTables}</p>
+                <p className="text-[9px] font-bold text-ink-muted/60">Ready to seat</p>
               </div>
-              {table.status === "OCCUPIED" ? (
-                <button className="h-7 w-7 rounded-control bg-surface-sunken hover:bg-border flex items-center justify-center text-ink-muted hover:text-ink transition-colors">
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              ) : table.status === "VACANT" ? (
-                <button className="text-xs text-primary font-bold hover:underline">
-                  Open Order
-                </button>
-              ) : null}
+            </div>
+
+            {/* Occupied */}
+            <div className="relative rounded-card overflow-hidden border border-primary/30 shadow-sm group">
+              <div
+                className="absolute inset-0 bg-cover bg-center opacity-15 group-hover:opacity-25 transition-opacity duration-500"
+                style={{ backgroundImage: `url('https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=400&q=80')` }}
+              />
+              <div className="relative p-4 space-y-1.5 bg-gradient-to-br from-primary/5 to-primary/[0.02]">
+                <p className="text-[9px] font-black text-primary/80 uppercase tracking-widest">Occupied</p>
+                <p className="text-3xl font-black text-primary tabular-nums">{occupiedTables}</p>
+                <div className="flex items-center gap-1.5">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
+                  </span>
+                  <p className="text-[9px] font-bold text-ink-muted/60">Active dine-in</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Reserved */}
+            <div className="relative rounded-card overflow-hidden border border-warning/30 shadow-sm group">
+              <div
+                className="absolute inset-0 bg-cover bg-center opacity-15 group-hover:opacity-25 transition-opacity duration-500"
+                style={{ backgroundImage: `url('https://images.unsplash.com/photo-1424847651672-bf20a4b0982b?w=400&q=80')` }}
+              />
+              <div className="relative p-4 space-y-1.5 bg-gradient-to-br from-warning/5 to-warning/[0.02]">
+                <p className="text-[9px] font-black text-warning/80 uppercase tracking-widest">Reserved</p>
+                <p className="text-3xl font-black text-warning tabular-nums">{reservedTables}</p>
+                <p className="text-[9px] font-bold text-ink-muted/60">Held for guests</p>
+              </div>
             </div>
           </div>
-        ))}
-      </div>
+
+          {/* Segmented Occupancy Bar */}
+          <div className="rounded-card border border-border bg-card px-5 py-3.5 shadow-xs flex items-center gap-4">
+            <Utensils className="h-3.5 w-3.5 text-primary shrink-0" />
+            <div className="flex-1 h-2 bg-surface-sunken rounded-full overflow-hidden flex">
+              <div className="bg-primary h-full transition-all duration-700 ease-out rounded-l-full" style={{ width: `${tableOccupancyPercent}%` }} />
+              <div className="bg-warning h-full transition-all duration-700 ease-out" style={{ width: `${tableReservedPercent}%` }} />
+              <div className="bg-success h-full transition-all duration-700 ease-out rounded-r-full" style={{ width: `${tableVacantPercent}%` }} />
+            </div>
+            <span className="text-[10px] font-black text-ink-muted tabular-nums shrink-0">{tableOccupancyPercent}% occupied</span>
+          </div>
+        </div>
+      )}
+
+      {/* DYNAMIC CONFLICT ALERT */}
+      {conflictWarning && (
+        <div className="rounded-control border border-warning/30 bg-warning/10 p-4 text-xs text-warning flex items-center justify-between animate-fade-in-up">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4.5 w-4.5 shrink-0" />
+            <span>{conflictWarning}</span>
+          </div>
+          <button
+            onClick={() => setConflictWarning(null)}
+            className="text-[10px] font-bold underline hover:no-underline ml-4"
+          >
+            Acknowledge
+          </button>
+        </div>
+      )}
+
+      {/* TABLES LAYOUT GRID — PREMIUM AMBIENT CARDS */}
+      {isTablesLoading ? (
+        <div className="flex h-[40vh] w-full items-center justify-center text-primary">
+          <Loader2 className="h-10 w-10 animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 animate-fade-in-up [animation-delay:150ms]">
+          {tables.map((table, index) => {
+            const isOccupied = table.status === "OCCUPIED";
+            const isReserved = table.status === "RESERVED";
+            const isVacant = table.status === "VACANT";
+
+            // Rotate through curated restaurant ambiance images
+            const ambientImages = [
+              "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
+              "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&q=80",
+              "https://images.unsplash.com/photo-1424847651672-bf20a4b0982b?w=600&q=80",
+              "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&q=80",
+              "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=600&q=80",
+              "https://images.unsplash.com/photo-1550966871-3ed3cfd8a5d3?w=600&q=80",
+              "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=600&q=80",
+              "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=80",
+            ];
+            const bgImage = ambientImages[index % ambientImages.length];
+
+            return (
+              <div
+                key={table.id}
+                onClick={() => {
+                  setSelectedTableId(table.id);
+                  if (isVacant) {
+                    setOpenOrderModalOpen(true);
+                  } else {
+                    setDetailOpen(true);
+                  }
+                }}
+                className={cn(
+                  "group relative rounded-card overflow-hidden cursor-pointer select-none transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl",
+                  "h-[200px] sm:h-[220px]"
+                )}
+                style={{ animationDelay: `${index * 40}ms` }}
+              >
+                {/* Background ambient restaurant photo */}
+                <div
+                  className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105"
+                  style={{ backgroundImage: `url('${bgImage}')` }}
+                />
+
+                {/* Dark gradient scrim — stronger at bottom for text readability */}
+                <div className={cn(
+                  "absolute inset-0 transition-opacity duration-300",
+                  isOccupied
+                    ? "bg-gradient-to-t from-black/90 via-black/60 to-primary/25"
+                    : isReserved
+                    ? "bg-gradient-to-t from-black/90 via-black/60 to-warning/25"
+                    : "bg-gradient-to-t from-black/85 via-black/50 to-black/20 group-hover:from-black/80"
+                )} />
+
+                {/* Status glow ring on border */}
+                <div className={cn(
+                  "absolute inset-0 rounded-card ring-inset transition-all duration-300",
+                  isOccupied && "ring-2 ring-primary/60",
+                  isReserved && "ring-2 ring-warning/60",
+                  isVacant && "ring-1 ring-white/10 group-hover:ring-success/40"
+                )} />
+
+                {/* TOP ROW — table number + live status beacon */}
+                <div className="absolute top-3 left-3 right-3 flex items-start justify-between z-10">
+                  <div>
+                    <span className="inline-flex items-center gap-1 bg-black/50 backdrop-blur-sm text-white text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-white/10">
+                      <Utensils className="h-2.5 w-2.5 opacity-70" />
+                      {table.name}
+                    </span>
+                  </div>
+
+                  {/* Live status beacon */}
+                  <div className={cn(
+                    "flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border backdrop-blur-sm",
+                    isOccupied && "bg-primary/20 border-primary/40 text-primary-foreground",
+                    isReserved && "bg-warning/20 border-warning/40 text-warning",
+                    isVacant && "bg-success/20 border-success/40 text-success"
+                  )}>
+                    <span className="relative flex h-1.5 w-1.5">
+                      {isOccupied && (
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                      )}
+                      <span className={cn(
+                        "relative inline-flex rounded-full h-1.5 w-1.5",
+                        isOccupied && "bg-primary",
+                        isReserved && "bg-warning",
+                        isVacant && "bg-success"
+                      )} />
+                    </span>
+                    <span>{isOccupied ? "Occupied" : isReserved ? "Reserved" : "Vacant"}</span>
+                  </div>
+                </div>
+
+                {/* Physical seat dots — decorative corners */}
+                <div className="absolute top-1/2 -translate-y-1/2 left-2 flex flex-col gap-2 pointer-events-none z-10 opacity-60">
+                  <div className={cn("h-2 w-2 rounded-full border border-white/30", isOccupied ? "bg-primary/70" : isReserved ? "bg-warning/70" : "bg-white/20")} />
+                  <div className={cn("h-2 w-2 rounded-full border border-white/30", isOccupied ? "bg-primary/70" : isReserved ? "bg-warning/70" : "bg-white/20")} />
+                </div>
+                <div className="absolute top-1/2 -translate-y-1/2 right-2 flex flex-col gap-2 pointer-events-none z-10 opacity-60">
+                  <div className={cn("h-2 w-2 rounded-full border border-white/30", isOccupied ? "bg-primary/70" : isReserved ? "bg-warning/70" : "bg-white/20")} />
+                  <div className={cn("h-2 w-2 rounded-full border border-white/30", isOccupied ? "bg-primary/70" : isReserved ? "bg-warning/70" : "bg-white/20")} />
+                </div>
+
+                {/* BOTTOM ROW — tag + running total */}
+                <div className="absolute bottom-0 left-0 right-0 p-3 z-10 space-y-1">
+                  {table.currentTag ? (
+                    <p className="text-[10px] text-white/70 font-bold uppercase tracking-widest truncate" title={table.currentTag}>
+                      {table.currentTag}
+                    </p>
+                  ) : (
+                    <p className="text-[9px] text-white/35 font-medium italic">
+                      {isVacant ? "Tap to open order" : "No active tag"}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-between">
+                    {isOccupied && table.openOrderTotal > 0 ? (
+                      <>
+                        <span className="text-[9px] text-white/50 font-bold uppercase">Running Bill</span>
+                        <span className="text-base font-black text-white tabular-nums tracking-tight drop-shadow-sm">
+                          Rs. {Number(table.openOrderTotal).toLocaleString()}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[9px] text-white/40 font-bold">
+                        {isVacant ? "No active bill" : isReserved ? "Held for reservation" : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Hover action hint */}
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10">
+                  <div className="bg-white/15 backdrop-blur-md border border-white/20 rounded-full px-4 py-1.5 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
+                    {isVacant ? "Open Table" : "View Order"}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* MODAL 1: OPEN VACANT TABLE */}
+      <Modal
+        isOpen={openOrderModalOpen}
+        onClose={() => {
+          setOpenOrderModalOpen(false);
+          setGuestTag("");
+          setActionError(null);
+        }}
+        title="Open Table Ticket"
+        footer={
+          <>
+            <button
+              onClick={() => setOpenOrderModalOpen(false)}
+              className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                if (selectedTableId) {
+                  openOrderMutation.mutate({ id: selectedTableId, tag: guestTag });
+                }
+              }}
+              disabled={openOrderMutation.isPending}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {openOrderMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Open Dine-in Order</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-control bg-surface-sunken p-3 text-xs text-ink-muted font-medium border border-border">
+            You are opening a new order on <span className="font-extrabold text-ink">{tables.find(t => t.id === selectedTableId)?.name}</span>.
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1.5">
+              Guest Tracking Tag (Optional)
+            </label>
+            <input
+              type="text"
+              value={guestTag}
+              onChange={(e) => setGuestTag(e.target.value)}
+              placeholder="e.g. Lunch with Family, Drinks section"
+              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+            />
+          </div>
+          {actionError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
+              {actionError}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* SHEET 2: ACTIVE ORDER SIDE DRAWER */}
+      <Sheet
+        isOpen={detailOpen}
+        onClose={() => {
+          setDetailOpen(false);
+          setSelectedTableId(null);
+          setActionError(null);
+        }}
+        title={`Table Details — ${tableDetail?.name || ""}`}
+        footer={
+          <div className="flex flex-col gap-2 w-full">
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setMoveModalOpen(true)}
+                className="flex items-center justify-center gap-1 px-2.5 py-2 border border-border hover:border-ink hover:bg-surface-sunken text-ink text-xs font-bold rounded-control transition-colors"
+              >
+                <Move className="h-3.5 w-3.5 text-ink-muted" />
+                <span>Move</span>
+              </button>
+              <button
+                onClick={() => setMergeModalOpen(true)}
+                className="flex items-center justify-center gap-1 px-2.5 py-2 border border-border hover:border-ink hover:bg-surface-sunken text-ink text-xs font-bold rounded-control transition-colors"
+              >
+                <GitMerge className="h-3.5 w-3.5 text-ink-muted" />
+                <span>Merge</span>
+              </button>
+              <button
+                onClick={() => setAddItemsModalOpen(true)}
+                className="flex items-center justify-center gap-1 px-2.5 py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-control transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Add Items</span>
+              </button>
+            </div>
+            {activeItems.length > 0 && (
+              <button
+                onClick={() => setSettleModalOpen(true)}
+                className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-control shadow-md hover:bg-primary-hover transition-colors"
+              >
+                <CreditCard className="h-4 w-4" />
+                <span>Checkout & Settle (Rs. {finalTotal.toFixed(0)})</span>
+              </button>
+            )}
+          </div>
+        }
+      >
+        {isDetailLoading ? (
+          <div className="flex justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Table status header summary */}
+            <div className="flex items-center justify-between border-b border-border/50 pb-4">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-ink-muted tracking-wider block">Current Tag</span>
+                <span className="font-extrabold text-sm text-ink">{tableDetail?.currentTag || "No tag specified"}</span>
+              </div>
+              <StatusBadge status={tableDetail?.status || "VACANT"} />
+            </div>
+
+            {/* Action/Service warnings */}
+            {actionError && (
+              <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger mb-4">
+                {actionError}
+              </div>
+            )}
+
+            {/* Bill Lines */}
+            <div className="space-y-3">
+              <h4 className="font-bold text-xs text-ink uppercase tracking-wider">Dine-in Ticket Items</h4>
+              {activeItems.length > 0 ? (
+                <div className="border border-border rounded-card bg-surface-sunken/40 divide-y divide-border/60">
+                  {activeItems.map((item) => (
+                    <div key={item.id} className="flex items-start justify-between p-3.5 text-xs">
+                      <div className="space-y-0.5 max-w-[200px]">
+                        <h5 className="font-extrabold text-ink leading-tight">{item.menuItem.name}</h5>
+                        <span className="text-ink-muted font-mono">
+                          Rs. {Number(item.unitPrice).toFixed(0)} × {item.qty}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-extrabold text-ink tabular-nums pr-1">
+                          Rs. {(Number(item.unitPrice) * item.qty).toFixed(0)}
+                        </span>
+                        
+                        {/* Void line item */}
+                        <button
+                          disabled={voidItemMutation.isPending}
+                          onClick={() => {
+                            if (confirm(`Void '${item.menuItem.name}' from Table order?`)) {
+                              voidItemMutation.mutate(item.id);
+                            }
+                          }}
+                          className="text-ink-muted/40 hover:text-danger p-1 rounded-control transition-colors"
+                          title="Void item"
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Totals Summary */}
+                  <div className="p-3.5 bg-surface-sunken flex justify-between items-center text-xs font-bold text-ink border-t border-border">
+                    <span className="uppercase text-[10px] text-ink-muted tracking-wider">Subtotal</span>
+                    <span className="text-sm text-primary tabular-nums">Rs. {subtotal.toFixed(0)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12 text-xs text-ink-muted italic border border-dashed border-border rounded-card bg-surface-sunken/20">
+                  No active items currently added on this table order.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Sheet>
+
+      {/* MODAL 3: ADD ITEMS (POS GRID IFRAME) */}
+      <Modal
+        isOpen={addItemsModalOpen}
+        onClose={() => {
+          setAddItemsModalOpen(false);
+          setTempCart([]);
+          setActionError(null);
+        }}
+        title="Add Items to Table"
+        className="max-w-4xl h-[85vh]"
+        footer={
+          <>
+            <button
+              onClick={() => {
+                setAddItemsModalOpen(false);
+                setTempCart([]);
+              }}
+              className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={tempCart.length === 0 || addItemsMutation.isPending}
+              onClick={() => {
+                if (selectedTableId) {
+                  addItemsMutation.mutate({
+                    id: selectedTableId,
+                    items: tempCart.map(i => ({ menuItemId: i.menuItemId, qty: i.qty }))
+                  });
+                }
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors animate-pulse-glow"
+            >
+              {addItemsMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Commit Additions</span>
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col md:flex-row gap-5 h-full max-h-[60vh]">
+          {/* Menu selection side */}
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
+            <div className="flex gap-1.5 overflow-x-auto pb-1.5 border-b border-border scrollbar-none select-none">
+              <button
+                onClick={() => setSelectedCatId("ALL")}
+                className={cn(
+                  "px-3 py-1.5 rounded-full text-[10px] font-extrabold tracking-wide uppercase whitespace-nowrap transition-colors",
+                  selectedCatId === "ALL"
+                    ? "bg-primary text-white"
+                    : "bg-surface-sunken text-ink-muted hover:bg-border"
+                )}
+              >
+                All
+              </button>
+              {menuData?.categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCatId(cat.id)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-[10px] font-extrabold tracking-wide uppercase whitespace-nowrap transition-colors",
+                    selectedCatId === cat.id
+                      ? "bg-primary text-white"
+                      : "bg-surface-sunken text-ink-muted hover:bg-border"
+                  )}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {filteredMenuItems.map((item) => {
+                const inCart = tempCart.find((i) => i.menuItemId === item.id);
+                const categoryObj = menuData?.categories.find((c) => c.id === item.categoryId);
+                const categoryName = categoryObj ? categoryObj.name : "";
+                const imageUrl = item.imageUrl || getMenuItemImage(item.name, categoryName);
+
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => handleAddToCart(item)}
+                    className={cn(
+                      "group rounded-card border overflow-hidden bg-card hover:shadow-lg cursor-pointer flex flex-col justify-between h-[180px] transition-all duration-300 relative select-none transform active:scale-[0.98]",
+                      inCart
+                        ? "border-primary ring-1 ring-primary/20 shadow-sm"
+                        : "border-border hover:border-border-hover"
+                    )}
+                  >
+                    {/* Visual Card Image Header */}
+                    <div className="h-[95px] w-full relative overflow-hidden bg-surface-sunken">
+                      <img
+                        src={imageUrl}
+                        alt={item.name}
+                        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                      {categoryName && (
+                        <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-xs text-[8px] font-black text-white uppercase tracking-wider select-none">
+                          {categoryName}
+                        </span>
+                      )}
+
+                      {/* Floating Indicator Bubble */}
+                      {inCart && (
+                        <div className="absolute top-2.5 right-2.5 h-5 w-5 rounded-full bg-primary text-white flex items-center justify-center text-[10px] font-black shadow-sm animate-scale-up">
+                          {inCart.qty}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Details Info Footer */}
+                    <div className="p-3 flex-1 flex flex-col justify-between">
+                      <h5 className="font-extrabold text-ink text-xs line-clamp-1 leading-tight group-hover:text-primary transition-colors duration-200" title={item.name}>
+                        {item.name}
+                      </h5>
+                      <div className="flex items-center justify-between mt-2 select-none">
+                        <span className="text-[11px] font-black text-ink font-mono tabular-nums">
+                          Rs. {Number(item.price).toFixed(0)}
+                        </span>
+
+                        <span className={cn(
+                          "h-5 px-2 rounded-control flex items-center gap-1 text-[9px] font-black shrink-0 transition-colors duration-200",
+                          inCart
+                            ? "bg-primary text-white"
+                            : "bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white"
+                        )}>
+                          <Plus className="h-2.5 w-2.5 shrink-0" />
+                          <span>Add</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Pending Addition Cart side */}
+          <div className="w-full md:w-[280px] border border-border rounded-card bg-surface-sunken/40 p-4 flex flex-col justify-between shrink-0">
+            <div>
+              <h4 className="font-extrabold text-xs text-ink border-b border-border pb-2 flex items-center justify-between">
+                <span>Pending Additions</span>
+                <span className="text-[10px] bg-primary/15 text-primary px-2 py-0.5 rounded-full font-bold">
+                  {tempCart.reduce((sum, i) => sum + i.qty, 0)} items
+                </span>
+              </h4>
+              <div className="overflow-y-auto max-h-[35vh] py-3 space-y-3 scrollbar-thin divide-y divide-border/40">
+                {tempCart.map((item, idx) => (
+                  <div key={item.menuItemId} className={cn("flex justify-between items-start text-xs", idx > 0 && "pt-3")}>
+                    <div className="space-y-0.5 max-w-[130px]">
+                      <h5 className="font-bold text-ink leading-tight truncate">{item.name}</h5>
+                      <span className="text-[10px] text-ink-muted">Rs. {item.price.toFixed(0)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => handleUpdateCartQty(item.menuItemId, -1)}
+                        className="h-5.5 w-5.5 rounded-control bg-surface-sunken hover:bg-border text-ink flex items-center justify-center transition-colors"
+                      >
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="font-extrabold text-ink w-3 text-center tabular-nums text-[11px]">{item.qty}</span>
+                      <button
+                        onClick={() => handleUpdateCartQty(item.menuItemId, 1)}
+                        className="h-5.5 w-5.5 rounded-control bg-surface-sunken hover:bg-border text-ink flex items-center justify-center transition-colors"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {tempCart.length === 0 && (
+                  <div className="text-center py-12 text-ink-muted text-[11px] italic">
+                    Click items in the grid to append them to the cart addition checklist.
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {actionError && (
+              <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-[10px] text-danger mt-3">
+                {actionError}
+              </div>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* MODAL 4: MOVE TABLE */}
+      <Modal
+        isOpen={moveModalOpen}
+        onClose={() => {
+          setMoveModalOpen(false);
+          setTargetTableId("");
+          setActionError(null);
+        }}
+        title="Transfer Table Order"
+        footer={
+          <>
+            <button
+              onClick={() => setMoveModalOpen(false)}
+              className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={!targetTableId || moveMutation.isPending}
+              onClick={() => {
+                if (selectedTableId) {
+                  moveMutation.mutate({ id: selectedTableId, targetTableId });
+                }
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {moveMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Transfer Ticket</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-control bg-surface-sunken p-3 text-xs text-ink-muted font-medium border border-border">
+            You are transferring the running order from <span className="font-extrabold text-ink">{tableDetail?.name}</span> to a vacant table.
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1.5">
+              Select Vacant Destination Table
+            </label>
+            <select
+              value={targetTableId}
+              onChange={(e) => setTargetTableId(e.target.value)}
+              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none bg-card focus:border-primary"
+            >
+              <option value="">-- Choose Vacant Table --</option>
+              {tables
+                .filter((t) => t.status === "VACANT")
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          {actionError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
+              {actionError}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* MODAL 5: MERGE TABLES */}
+      <Modal
+        isOpen={mergeModalOpen}
+        onClose={() => {
+          setMergeModalOpen(false);
+          setTargetTableId("");
+          setActionError(null);
+        }}
+        title="Merge Table Orders"
+        footer={
+          <>
+            <button
+              onClick={() => setMergeModalOpen(false)}
+              className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={!targetTableId || mergeMutation.isPending}
+              onClick={() => {
+                if (selectedTableId) {
+                  mergeMutation.mutate({ id: selectedTableId, targetTableId });
+                }
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {mergeMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Combine Tickets</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-control bg-surface-sunken p-3 text-xs text-ink-muted font-medium border border-border">
+            You are combining all items from <span className="font-extrabold text-ink">{tableDetail?.name}</span> into another active table order. The current table will be freed.
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1.5">
+              Select Occupied Destination Table
+            </label>
+            <select
+              value={targetTableId}
+              onChange={(e) => setTargetTableId(e.target.value)}
+              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none bg-card focus:border-primary"
+            >
+              <option value="">-- Choose Occupied Table --</option>
+              {tables
+                .filter((t) => t.status === "OCCUPIED" && t.id !== selectedTableId)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} {t.currentTag ? `(${t.currentTag})` : ""}
+                  </option>
+                ))}
+            </select>
+          </div>
+          {actionError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
+              {actionError}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* MODAL 6: BILL SETTLEMENT */}
+      <Modal
+        isOpen={settleModalOpen}
+        onClose={() => {
+          setSettleModalOpen(false);
+          setDiscount(0);
+          setCustomerName("");
+          setPhone("");
+          setActionError(null);
+        }}
+        title={`Settle Bill — Table ${tableDetail?.name}`}
+        footer={
+          <>
+            <button
+              onClick={() => setSettleModalOpen(false)}
+              className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={closeOrderMutation.isPending}
+              onClick={() => {
+                if (selectedTableId) {
+                  if (paymentType === "CREDIT" && (!customerName || !phone)) {
+                    setActionError("Customer name and phone number are required for credit checkouts");
+                    return;
+                  }
+                  closeOrderMutation.mutate({
+                    id: selectedTableId,
+                    payload: {
+                      paymentType,
+                      discount,
+                      customerInfo: customerName && phone ? { customerName, phone } : undefined
+                    }
+                  });
+                }
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors animate-pulse-glow"
+            >
+              {closeOrderMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Settle Payment</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {/* Payment Type Selection */}
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1.5">
+              Settlement Method
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {(["CASH", "CARD", "CREDIT"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setPaymentType(type)}
+                  className={cn(
+                    "py-1.5 rounded-control text-xs font-semibold border transition-all text-center select-none",
+                    paymentType === type
+                      ? "bg-primary border-primary text-white shadow-sm"
+                      : "border-border text-ink-muted hover:bg-surface-sunken"
+                  )}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Customer Inputs (for Credit) */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                Guest Name {paymentType === "CREDIT" && "*"}
+              </label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Guest Name"
+                required={paymentType === "CREDIT"}
+                className="w-full rounded-control border border-border px-2.5 py-1.5 text-xs text-ink outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                Phone Number {paymentType === "CREDIT" && "*"}
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="98XXXXXXXX"
+                required={paymentType === "CREDIT"}
+                className="w-full rounded-control border border-border px-2.5 py-1.5 text-xs text-ink outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* Pricing Totals Section */}
+          <div className="space-y-2 border-t border-border/50 pt-3 text-xs">
+            <div className="flex justify-between text-ink-muted">
+              <span>Subtotal</span>
+              <span className="font-semibold tabular-nums text-ink">Rs. {subtotal.toFixed(2)}</span>
+            </div>
+
+            {/* Discount input (Admin approval gated) */}
+            <div className="flex justify-between items-center text-ink-muted">
+              <span>Discount</span>
+              {isAdmin ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase font-bold text-ink-muted">NPR</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={subtotal}
+                    value={discount || ""}
+                    onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    className="w-24 rounded-control border border-border px-2 py-0.5 text-right font-mono text-xs text-ink outline-none focus:border-primary"
+                  />
+                </div>
+              ) : (
+                <span className="font-mono text-ink-muted italic text-[11px]">
+                  Rs. 0.00 (Restricted)
+                </span>
+              )}
+            </div>
+
+            <div className="flex justify-between text-sm font-bold text-ink border-t border-border/50 pt-2.5 select-none">
+              <span>Final Total</span>
+              <span className="text-primary tabular-nums">Rs. {finalTotal.toFixed(2)}</span>
+            </div>
+          </div>
+
+          {actionError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-[11px] text-danger">
+              {actionError}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* MODAL 7: SUCCESS RECEIPT VIEW */}
+      <Modal
+        isOpen={receiptModalOpen}
+        onClose={() => {
+          setReceiptModalOpen(false);
+          setReceiptOrderId(null);
+        }}
+        title="Table Settle Success — Sales Invoice"
+        footer={
+          <button
+            onClick={() => {
+              setReceiptModalOpen(false);
+              setReceiptOrderId(null);
+            }}
+            className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover transition-colors"
+          >
+            Done & Close
+          </button>
+        }
+      >
+        {isReceiptLoading || !receipt ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Structured Receipt Layout */}
+            <div className="border border-border rounded-card bg-surface-sunken p-5 font-mono text-xs space-y-4">
+              <div className="text-center space-y-1">
+                <h3 className="font-extrabold text-sm text-ink">JD SEKUWA HOUSE</h3>
+                <p className="text-ink-muted text-[10px]">Lalitpur, Nepal</p>
+                <div className="border-b border-dashed border-border py-1" />
+              </div>
+
+              <div className="space-y-1 text-ink-muted">
+                <div className="flex justify-between">
+                  <span>Invoice ID:</span>
+                  <span className="font-semibold text-ink truncate max-w-[180px]">{receipt.id}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Dining Table:</span>
+                  <span className="font-semibold text-ink uppercase">{receipt.tableName}</span>
+                </div>
+                {receipt.tag && (
+                  <div className="flex justify-between">
+                    <span>Guest Tag:</span>
+                    <span className="font-semibold text-ink truncate max-w-[180px]">{receipt.tag}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>Cashier:</span>
+                  <span className="font-semibold text-ink uppercase">{receipt.cashierName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Settle Mode:</span>
+                  <span className="font-semibold text-ink">{receipt.paymentType}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Closed At:</span>
+                  <span>{receipt.closedAt ? new Date(receipt.closedAt).toLocaleString() : ""}</span>
+                </div>
+              </div>
+
+              <div className="border-b border-dashed border-border" />
+
+              {/* Items Listing */}
+              <div className="space-y-2">
+                <div className="flex font-bold text-ink">
+                  <span className="flex-1">Item Name</span>
+                  <span className="w-12 text-center">Qty</span>
+                  <span className="w-20 text-right">Price</span>
+                </div>
+                {receipt.items.map((item) => (
+                  <div key={item.id} className="flex text-ink-muted justify-between">
+                    <span className="flex-1 truncate pr-2">{item.name}</span>
+                    <span className="w-12 text-center">{item.qty}</span>
+                    <span className="w-20 text-right">{(item.unitPrice * item.qty).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-b border-dashed border-border" />
+
+              {/* Totals */}
+              <div className="space-y-1.5 text-ink">
+                <div className="flex justify-between">
+                  <span>Subtotal</span>
+                  <span>Rs. {receipt.subtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-ink-muted">
+                  <span>Discount</span>
+                  <span>Rs. -{receipt.discount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-primary text-sm border-t border-border/40 pt-1.5">
+                  <span>Total Settled</span>
+                  <span>Rs. {receipt.total.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* WhatsApp Share Form */}
+            <div className="flex items-center gap-2 border-t border-border pt-4">
+              <input
+                type="tel"
+                placeholder="WhatsApp Phone (e.g. 97798XXXXXXXX)"
+                value={whatsappPhone}
+                onChange={(e) => setWhatsappPhone(e.target.value)}
+                className="flex-1 rounded-control border border-border px-3 py-1.5 text-xs text-ink outline-none focus:border-primary"
+              />
+              <button
+                onClick={handleWhatsAppShare}
+                disabled={!whatsappPhone}
+                className="px-3.5 py-1.5 bg-success hover:bg-success-hover text-white text-xs font-bold rounded-control disabled:opacity-50 transition-colors"
+              >
+                Share Invoice
+              </button>
+            </div>
+
+            <div className="flex gap-2 justify-center">
+              {isQzConnected && receptionPrinter ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (receipt) printReceipt(receptionPrinter, receipt);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-white text-xs font-bold rounded-control hover:bg-primary-hover transition-colors"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Print Thermal Bill</span>
+                </button>
+              ) : (
+                <span className="text-[10px] text-warning font-semibold italic flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>Printer bridge disconnected (Fallback to browser print)</span>
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-sunken hover:bg-border border border-border text-ink-muted hover:text-ink text-xs font-semibold rounded-control transition-colors"
+              >
+                <Printer className="h-4 w-4" />
+                <span>Browser Print</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

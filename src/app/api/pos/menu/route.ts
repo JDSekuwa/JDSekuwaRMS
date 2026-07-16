@@ -22,6 +22,7 @@ export async function GET() {
         name: true,
         price: true,
         categoryId: true,
+        imageUrl: true,
       },
       orderBy: { name: "asc" }
     });
