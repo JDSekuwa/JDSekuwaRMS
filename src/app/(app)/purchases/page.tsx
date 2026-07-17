@@ -55,11 +55,12 @@ export default function PurchasesPage() {
 
   // 1. Fetch raw items for select lists
   const { data: rawItems = [] } = useQuery<RawItem[]>({
-    queryKey: ["inventory"],
+    queryKey: ["inventory-list-all"],
     queryFn: async () => {
-      const res = await fetch("/api/inventory");
+      const res = await fetch("/api/inventory?limit=1000");
       if (!res.ok) throw new Error("Failed to load raw ingredients");
-      return res.json();
+      const json = await res.json();
+      return json.data || [];
     }
   });
 

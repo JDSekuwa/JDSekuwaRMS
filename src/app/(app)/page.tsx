@@ -64,6 +64,8 @@ export default function DashboardPage() {
   const { role } = useAuth();
   const queryClient = useQueryClient();
   const [greeting, setGreeting] = useState("Welcome back");
+  const [tableFilter, setTableFilter] = useState<"ALL" | "OCCUPIED" | "RESERVED" | "VACANT">("ALL");
+  const [roomFilter, setRoomFilter] = useState<"ALL" | "OCCUPIED" | "VACANT">("ALL");
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -226,8 +228,8 @@ export default function DashboardPage() {
     if (themeColor === "info") colorClass = "text-info bg-info/10 border-info/20";
 
     return (
-      <div className="flex flex-col items-center justify-center py-10 px-4 text-center rounded-card border border-dashed border-border/60 bg-surface-sunken/30">
-        <div className={cn("p-3 rounded-full border mb-3 flex items-center justify-center animate-pulse-glow", colorClass)}>
+      <div className="animate-fade-in-up flex flex-col items-center justify-center py-10 px-4 text-center rounded-card border border-dashed border-border/60 bg-surface-sunken/30 hover:bg-surface-sunken/50 transition-colors duration-300 w-full">
+        <div className={cn("p-3 rounded-full border mb-3 flex items-center justify-center animate-pulse-glow transition-transform duration-300 hover:scale-110", colorClass)}>
           <Icon className="h-5 w-5" />
         </div>
         <h4 className="text-xs font-bold text-ink tracking-wide mb-1 uppercase">{title}</h4>
@@ -390,104 +392,177 @@ export default function DashboardPage() {
                 <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-warning" /> {reservedTables} Reserved</span>
               </div>
             </div>
+
+            {/* Segment control/filter pills */}
+            <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-border/40">
+              <button
+                onClick={() => setTableFilter("ALL")}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-bold rounded-full transition-all duration-200 border cursor-pointer active:scale-[0.98]",
+                  tableFilter === "ALL"
+                    ? "bg-ink text-background border-ink"
+                    : "bg-surface-sunken hover:bg-border border-border text-ink-muted hover:text-ink"
+                )}
+              >
+                All ({totalTablesCount})
+              </button>
+              <button
+                onClick={() => setTableFilter("VACANT")}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-bold rounded-full transition-all duration-200 border flex items-center gap-1 cursor-pointer active:scale-[0.98]",
+                  tableFilter === "VACANT"
+                    ? "bg-success text-white border-success"
+                    : "bg-surface-sunken hover:bg-border border-border text-success hover:text-success/90"
+                )}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                Vacant ({vacantTables})
+              </button>
+              <button
+                onClick={() => setTableFilter("OCCUPIED")}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-bold rounded-full transition-all duration-200 border flex items-center gap-1 cursor-pointer active:scale-[0.98]",
+                  tableFilter === "OCCUPIED"
+                    ? "bg-primary text-white border-primary"
+                    : "bg-surface-sunken hover:bg-border border-border text-primary hover:text-primary/90"
+                )}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                Occupied ({occupiedTables})
+              </button>
+              <button
+                onClick={() => setTableFilter("RESERVED")}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-bold rounded-full transition-all duration-200 border flex items-center gap-1 cursor-pointer active:scale-[0.98]",
+                  tableFilter === "RESERVED"
+                    ? "bg-warning text-white border-warning"
+                    : "bg-surface-sunken hover:bg-border border-border text-warning hover:text-warning/90"
+                )}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+                Reserved ({reservedTables})
+              </button>
+            </div>
           </div>
 
           {/* Tables layout grid */}
           <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 max-h-[400px] overflow-y-auto pr-1 scrollbar-thin">
-            {tables.map((table, index) => {
-              const isOccupied = table.status === "OCCUPIED";
-              const isReserved = table.status === "RESERVED";
-              const isVacant = table.status === "VACANT";
-
-              const ambientImages = [
-                "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
-                "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&q=80",
-                "https://images.unsplash.com/photo-1424847651672-bf20a4b0982b?w=600&q=80",
-                "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&q=80",
-                "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=600&q=80",
-                "https://images.unsplash.com/photo-1550966871-3ed3cfd8a5d3?w=600&q=80",
-                "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=600&q=80",
-                "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=80",
-              ];
-              const bgImage = table.imageUrl || ambientImages[index % ambientImages.length];
-
-              return (
-                <div
-                  key={table.id}
-                  className="group relative rounded-card border border-border/80 p-4 flex flex-col justify-between h-[115px] transition-all duration-300 select-none overflow-hidden hover:-translate-y-1 hover:shadow-lg bg-black"
-                >
-                  {/* Background photo */}
-                  <div
-                    className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105 opacity-80"
-                    style={{ backgroundImage: `url('${bgImage}')` }}
-                  />
-
-                  {/* Status-aware gradient scrim */}
-                  <div className={cn(
-                    "absolute inset-0 transition-opacity duration-300",
-                    isOccupied
-                      ? "bg-gradient-to-t from-black/95 via-black/70 to-primary/30"
-                      : isReserved
-                      ? "bg-gradient-to-t from-black/95 via-black/70 to-warning/30"
-                      : "bg-gradient-to-t from-black/90 via-black/60 to-black/35 group-hover:from-black/85"
-                  )} />
-
-                  {/* Chairs Visual Representation */}
-                  <div className="absolute top-1/2 left-1.5 -translate-y-1/2 flex flex-col gap-1.5 pointer-events-none z-10">
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
-                  </div>
-                  <div className="absolute top-1/2 right-1.5 -translate-y-1/2 flex flex-col gap-1.5 pointer-events-none z-10">
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
-                  </div>
-                  <div className="absolute top-1.5 left-1/2 -translate-x-1/2 flex gap-1.5 pointer-events-none z-10">
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
-                  </div>
-                  <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1.5 pointer-events-none z-10">
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
-                  </div>
-
-                  {/* Main Details */}
-                  <div className="z-10 pl-2 pr-2">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-extrabold text-xs text-white group-hover:text-primary transition-colors">{table.name}</h4>
-                      {/* Active Status indicator dot */}
-                      <span className={cn(
-                        "h-2 w-2 rounded-full inline-block shrink-0 shadow-xs relative",
-                        isOccupied && "bg-primary",
-                        isReserved && "bg-warning",
-                        isVacant && "bg-success"
-                      )}>
-                        {isOccupied && (
-                          <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-primary opacity-75 -left-0 -top-0"></span>
-                        )}
-                      </span>
-                    </div>
-                    
-                    {table.currentTag ? (
-                      <p className="text-[10px] text-white/70 mt-1 truncate font-bold uppercase tracking-wider max-w-[110px]" title={table.currentTag}>
-                        {table.currentTag}
-                      </p>
-                    ) : (
-                      <p className="text-[9px] text-white/40 mt-1 italic font-medium">
-                        No Active Bill
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Status Badge & Open running total */}
-                  <div className="z-10 pl-2 pr-2 flex items-center justify-between border-t border-white/10 pt-1.5 mt-1.5">
-                    <StatusBadge status={table.status} className="text-[8px] font-extrabold tracking-wider px-1.5 py-0" />
-                    {table.openOrderTotal !== null && table.openOrderTotal > 0 && (
-                      <span className="text-[10px] font-black text-white tabular-nums tracking-tight">
-                        Rs. {Number(table.openOrderTotal).toFixed(0)}
-                      </span>
-                    )}
-                  </div>
-                </div>
+            {(() => {
+              const filteredTables = tables.filter(
+                (table) => tableFilter === "ALL" || table.status === tableFilter
               );
-            })}
+              if (filteredTables.length === 0) {
+                return (
+                  <div className="col-span-full py-10 flex flex-col items-center justify-center text-center bg-surface-sunken/20 border border-dashed border-border/40 rounded-card animate-fade-in-up w-full">
+                    <Utensils className="h-6 w-6 text-ink-muted/50 mb-2 animate-bounce" />
+                    <p className="text-[10px] font-bold text-ink-muted uppercase tracking-wider">No {tableFilter.toLowerCase()} tables right now</p>
+                  </div>
+                );
+              }
+              return filteredTables.map((table, index) => {
+                const isOccupied = table.status === "OCCUPIED";
+                const isReserved = table.status === "RESERVED";
+                const isVacant = table.status === "VACANT";
+
+                const ambientImages = [
+                  "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
+                  "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&q=80",
+                  "https://images.unsplash.com/photo-1424847651672-bf20a4b0982b?w=600&q=80",
+                  "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&q=80",
+                  "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=600&q=80",
+                  "https://images.unsplash.com/photo-1550966871-3ed3cfd8a5d3?w=600&q=80",
+                  "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=600&q=80",
+                  "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=80",
+                ];
+                const bgImage = table.imageUrl || ambientImages[index % ambientImages.length];
+                const delay = `${Math.min(index * 40, 400)}ms`;
+
+                return (
+                  <div
+                    key={table.id}
+                    style={{
+                      "--delay": delay,
+                    } as React.CSSProperties}
+                    className={cn(
+                      "animate-card-entrance group relative rounded-card border border-border/80 p-4 flex flex-col justify-between h-[115px] transition-all duration-300 select-none overflow-hidden bg-black hover:-translate-y-1",
+                      isVacant && "hover:border-success/40 hover:shadow-[0_8px_30px_rgba(22,163,74,0.15)]",
+                      isOccupied && "hover:border-primary/40 hover:shadow-[0_8px_30px_rgba(232,89,12,0.15)]",
+                      isReserved && "hover:border-warning/40 hover:shadow-[0_8px_30px_rgba(217,119,6,0.15)]"
+                    )}
+                  >
+                    {/* Background photo */}
+                    <div
+                      className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105 opacity-80"
+                      style={{ backgroundImage: `url('${bgImage}')` }}
+                    />
+
+                    {/* Status-aware gradient scrim */}
+                    <div className={cn(
+                      "absolute inset-0 transition-opacity duration-300",
+                      isOccupied
+                        ? "bg-gradient-to-t from-black/95 via-black/70 to-primary/30"
+                        : isReserved
+                        ? "bg-gradient-to-t from-black/95 via-black/70 to-warning/30"
+                        : "bg-gradient-to-t from-black/90 via-black/60 to-black/35 group-hover:from-black/85"
+                    )} />
+
+                    {/* Chairs Visual Representation */}
+                    <div className="absolute top-1/2 left-1.5 -translate-y-1/2 flex flex-col gap-1.5 pointer-events-none z-10">
+                      <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
+                      <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
+                    </div>
+                    <div className="absolute top-1/2 right-1.5 -translate-y-1/2 flex flex-col gap-1.5 pointer-events-none z-10">
+                      <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
+                      <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
+                    </div>
+                    <div className="absolute top-1.5 left-1/2 -translate-x-1/2 flex gap-1.5 pointer-events-none z-10">
+                      <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
+                    </div>
+                    <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1.5 pointer-events-none z-10">
+                      <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
+                    </div>
+
+                    {/* Main Details */}
+                    <div className="z-10 pl-2 pr-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-extrabold text-xs text-white group-hover:text-primary transition-colors">{table.name}</h4>
+                        {/* Active Status indicator dot */}
+                        <span className={cn(
+                          "h-2 w-2 rounded-full inline-block shrink-0 shadow-xs relative animate-status-soft-pulse",
+                          isOccupied && "bg-primary",
+                          isReserved && "bg-warning",
+                          isVacant && "bg-success"
+                        )}>
+                          {isOccupied && (
+                            <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-primary opacity-75 -left-0 -top-0"></span>
+                          )}
+                        </span>
+                      </div>
+                      
+                      {table.currentTag ? (
+                        <p className="text-[10px] text-white/70 mt-1 truncate font-bold uppercase tracking-wider max-w-[110px]" title={table.currentTag}>
+                          {table.currentTag}
+                        </p>
+                      ) : (
+                        <p className="text-[9px] text-white/40 mt-1 italic font-medium">
+                          No Active Bill
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Status Badge & Open running total */}
+                    <div className="z-10 pl-2 pr-2 flex items-center justify-between border-t border-white/10 pt-1.5 mt-1.5">
+                      <StatusBadge status={table.status} className="text-[8px] font-extrabold tracking-wider px-1.5 py-0" />
+                      {table.openOrderTotal !== null && table.openOrderTotal > 0 && (
+                        <span className="text-[10px] font-black text-white tabular-nums tracking-tight">
+                          Rs. {Number(table.openOrderTotal).toFixed(0)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
 
@@ -520,88 +595,148 @@ export default function DashboardPage() {
                 <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-info" /> {occupiedRooms} Active Lodging</span>
               </div>
             </div>
+
+            {/* Filter buttons for rooms */}
+            <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-border/40">
+              <button
+                onClick={() => setRoomFilter("ALL")}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-bold rounded-full transition-all duration-200 border cursor-pointer active:scale-[0.98]",
+                  roomFilter === "ALL"
+                    ? "bg-ink text-background border-ink"
+                    : "bg-surface-sunken hover:bg-border border-border text-ink-muted hover:text-ink"
+                )}
+              >
+                All ({totalRoomsCount})
+              </button>
+              <button
+                onClick={() => setRoomFilter("VACANT")}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-bold rounded-full transition-all duration-200 border flex items-center gap-1 cursor-pointer active:scale-[0.98]",
+                  roomFilter === "VACANT"
+                    ? "bg-success text-white border-success"
+                    : "bg-surface-sunken hover:bg-border border-border text-success hover:text-success/90"
+                )}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                Vacant ({vacantRooms})
+              </button>
+              <button
+                onClick={() => setRoomFilter("OCCUPIED")}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-bold rounded-full transition-all duration-200 border flex items-center gap-1 cursor-pointer active:scale-[0.98]",
+                  roomFilter === "OCCUPIED"
+                    ? "bg-info text-white border-info"
+                    : "bg-surface-sunken hover:bg-border border-border text-info hover:text-info/90"
+                )}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-info" />
+                Occupied ({occupiedRooms})
+              </button>
+            </div>
           </div>
 
           {/* Rooms List Grid */}
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 max-h-[400px] overflow-y-auto pr-1 scrollbar-thin">
-            {rooms.map((room, index) => {
-              const isOccupied = room.status === "OCCUPIED";
-              const isVacant = room.status === "VACANT";
-
-              const hotelImages = [
-                "https://images.unsplash.com/photo-1611891487122-2075b962442f?w=600&q=80",
-                "https://images.unsplash.com/photo-1590490360182-c33d57733427?w=600&q=80",
-                "https://images.unsplash.com/photo-1566665797739-1674de7a421a?w=600&q=80",
-                "https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=600&q=80",
-                "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=600&q=80",
-                "https://images.unsplash.com/photo-1540518614846-7eded433c457?w=600&q=80",
-              ];
-              const bgImage = room.imageUrl || hotelImages[index % hotelImages.length];
-
-              return (
-                <div
-                  key={room.id}
-                  className="group relative rounded-card border border-border/80 p-4 flex flex-col justify-between h-[115px] transition-all duration-300 select-none overflow-hidden hover:-translate-y-1 hover:shadow-lg bg-black"
-                >
-                  {/* Background photo */}
-                  <div
-                    className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105 opacity-80"
-                    style={{ backgroundImage: `url('${bgImage}')` }}
-                  />
-
-                  {/* Status-aware gradient scrim */}
-                  <div className={cn(
-                    "absolute inset-0 transition-opacity duration-300",
-                    isOccupied
-                      ? "bg-gradient-to-t from-black/95 via-black/70 to-info/30"
-                      : "bg-gradient-to-t from-black/90 via-black/60 to-black/35 group-hover:from-black/85"
-                  )} />
-
-                  {/* Decorative faint background icon */}
-                  <div className="absolute -right-2.5 -bottom-2.5 text-white/5 opacity-[0.03] transform -rotate-12 pointer-events-none group-hover:scale-110 transition-transform duration-300 z-10">
-                    <Bed className="h-14 w-14" />
-                  </div>
-
-                  {/* Main Details */}
-                  <div className="z-10">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <Bed className={cn("h-4 w-4 shrink-0 transition-colors duration-300", isOccupied ? "text-info" : "text-white/30")} />
-                        <h4 className="font-extrabold text-xs text-white">{room.name}</h4>
-                      </div>
-                      <span className={cn(
-                        "h-2 w-2 rounded-full inline-block shrink-0 shadow-xs",
-                        isOccupied && "bg-info",
-                        isVacant && "bg-success"
-                      )} />
-                    </div>
-                    
-                    {isOccupied ? (
-                      <p className="text-[10px] text-info font-bold mt-2 flex items-center gap-1 select-none">
-                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-info animate-pulse" />
-                        Guest Boarded Stay
-                      </p>
-                    ) : (
-                      <p className="text-[9px] text-white/55 mt-2 italic font-medium">
-                        Vacant & Cleaned
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Room checkout rates */}
-                  <div className="flex items-center justify-between border-t border-white/10 pt-1.5 mt-1.5 z-10">
-                    <StatusBadge status={room.status} className="text-[8px] font-extrabold tracking-wider px-1.5 py-0" />
-                    {room.nightlyRate !== null && (
-                      <div className="text-right">
-                        <span className="text-[10px] font-extrabold text-white tabular-nums tracking-tight">
-                          Rs. {Number(room.nightlyRate).toFixed(0)} <span className="text-[8px] text-white/70 font-normal font-sans">/ night</span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+            {(() => {
+              const filteredRooms = rooms.filter(
+                (room) => roomFilter === "ALL" || room.status === roomFilter
               );
-            })}
+              if (filteredRooms.length === 0) {
+                return (
+                  <div className="col-span-full py-10 flex flex-col items-center justify-center text-center bg-surface-sunken/20 border border-dashed border-border/40 rounded-card animate-fade-in-up w-full">
+                    <Bed className="h-6 w-6 text-ink-muted/50 mb-2 animate-bounce" />
+                    <p className="text-[10px] font-bold text-ink-muted uppercase tracking-wider">No {roomFilter.toLowerCase()} stays right now</p>
+                  </div>
+                );
+              }
+              return filteredRooms.map((room, index) => {
+                const isOccupied = room.status === "OCCUPIED";
+                const isVacant = room.status === "VACANT";
+
+                const hotelImages = [
+                  "https://images.unsplash.com/photo-1611891487122-2075b962442f?w=600&q=80",
+                  "https://images.unsplash.com/photo-1590490360182-c33d57733427?w=600&q=80",
+                  "https://images.unsplash.com/photo-1566665797739-1674de7a421a?w=600&q=80",
+                  "https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=600&q=80",
+                  "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=600&q=80",
+                  "https://images.unsplash.com/photo-1540518614846-7eded433c457?w=600&q=80",
+                ];
+                const bgImage = room.imageUrl || hotelImages[index % hotelImages.length];
+                const delay = `${Math.min(index * 40, 400)}ms`;
+
+                return (
+                  <div
+                    key={room.id}
+                    style={{
+                      "--delay": delay,
+                    } as React.CSSProperties}
+                    className={cn(
+                      "animate-card-entrance group relative rounded-card border border-border/80 p-4 flex flex-col justify-between h-[115px] transition-all duration-300 select-none overflow-hidden bg-black hover:-translate-y-1",
+                      isVacant && "hover:border-success/40 hover:shadow-[0_8px_30px_rgba(22,163,74,0.15)]",
+                      isOccupied && "hover:border-info/40 hover:shadow-[0_8px_30px_rgba(37,99,235,0.15)]"
+                    )}
+                  >
+                    {/* Background photo */}
+                    <div
+                      className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105 opacity-80"
+                      style={{ backgroundImage: `url('${bgImage}')` }}
+                    />
+
+                    {/* Status-aware gradient scrim */}
+                    <div className={cn(
+                      "absolute inset-0 transition-opacity duration-300",
+                      isOccupied
+                        ? "bg-gradient-to-t from-black/95 via-black/70 to-info/30"
+                        : "bg-gradient-to-t from-black/90 via-black/60 to-black/35 group-hover:from-black/85"
+                    )} />
+
+                    {/* Decorative faint background icon */}
+                    <div className="absolute -right-2.5 -bottom-2.5 text-white/5 opacity-[0.03] transform -rotate-12 pointer-events-none group-hover:scale-110 transition-transform duration-300 z-10">
+                      <Bed className="h-14 w-14" />
+                    </div>
+
+                    {/* Main Details */}
+                    <div className="z-10">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Bed className={cn("h-4 w-4 shrink-0 transition-colors duration-300", isOccupied ? "text-info" : "text-white/30")} />
+                          <h4 className="font-extrabold text-xs text-white">{room.name}</h4>
+                        </div>
+                        <span className={cn(
+                          "h-2 w-2 rounded-full inline-block shrink-0 shadow-xs animate-status-soft-pulse",
+                          isOccupied && "bg-info",
+                          isVacant && "bg-success"
+                        )} />
+                      </div>
+                      
+                      {isOccupied ? (
+                        <p className="text-[10px] text-info font-bold mt-2 flex items-center gap-1 select-none">
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-info animate-pulse" />
+                          Guest Boarded Stay
+                        </p>
+                      ) : (
+                        <p className="text-[9px] text-white/55 mt-2 italic font-medium">
+                          Vacant & Cleaned
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Room checkout rates */}
+                    <div className="flex items-center justify-between border-t border-white/10 pt-1.5 mt-1.5 z-10">
+                      <StatusBadge status={room.status} className="text-[8px] font-extrabold tracking-wider px-1.5 py-0" />
+                      {room.nightlyRate !== null && (
+                        <div className="text-right">
+                          <span className="text-[10px] font-extrabold text-white tabular-nums tracking-tight">
+                            Rs. {Number(room.nightlyRate).toFixed(0)} <span className="text-[8px] text-white/70 font-normal font-sans">/ night</span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
 

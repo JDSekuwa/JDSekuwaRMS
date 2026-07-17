@@ -88,7 +88,7 @@ export async function getDailySalesSummary(userId: string) {
 }
 
 /**
- * Returns a daily sales trend array over a date range.
+ * Returns a monthly sales trend array over a date range.
  */
 export async function getSalesTrend(range: DateRange, userId: string) {
   await assertAdminOrSuper(userId);
@@ -98,20 +98,26 @@ export async function getSalesTrend(range: DateRange, userId: string) {
   const end = new Date(range.end);
   end.setHours(23, 59, 59, 999);
 
-  // Build key-value map for daily aggregates
+  // Build key-value map for monthly aggregates (YYYY-MM)
   const trendMap = new Map<string, { date: string; quickSales: number; tableSales: number; roomSales: number; totalSales: number }>();
-  let cur = new Date(start);
-  while (cur <= end) {
-    const dateStr = cur.toISOString().split("T")[0];
-    trendMap.set(dateStr, {
-      date: dateStr,
+
+  // Pre-populate all months in range
+  const curMonth = new Date(start.getFullYear(), start.getMonth(), 1);
+  const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (curMonth <= endMonth) {
+    const monthStr = `${curMonth.getFullYear()}-${String(curMonth.getMonth() + 1).padStart(2, "0")}`;
+    trendMap.set(monthStr, {
+      date: monthStr,
       quickSales: 0,
       tableSales: 0,
       roomSales: 0,
       totalSales: 0
     });
-    cur.setDate(cur.getDate() + 1);
+    curMonth.setMonth(curMonth.getMonth() + 1);
   }
+
+  // Helper to extract YYYY-MM from a Date
+  const toMonthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
   // Load datasets
   const quick = await superuserPrisma.quickSale.findMany({
@@ -136,8 +142,8 @@ export async function getSalesTrend(range: DateRange, userId: string) {
 
   // Populate aggregates
   for (const s of quick) {
-    const dateStr = s.createdAt.toISOString().split("T")[0];
-    const existing = trendMap.get(dateStr);
+    const monthKey = toMonthKey(s.createdAt);
+    const existing = trendMap.get(monthKey);
     if (existing) {
       existing.quickSales += Number(s.total);
     }
@@ -145,8 +151,8 @@ export async function getSalesTrend(range: DateRange, userId: string) {
 
   for (const o of table) {
     if (!o.updatedAt) continue;
-    const dateStr = o.updatedAt.toISOString().split("T")[0];
-    const existing = trendMap.get(dateStr);
+    const monthKey = toMonthKey(o.updatedAt);
+    const existing = trendMap.get(monthKey);
     if (existing) {
       existing.tableSales += Number(o.total || 0);
     }
@@ -154,8 +160,8 @@ export async function getSalesTrend(range: DateRange, userId: string) {
 
   for (const rs of room) {
     if (!rs.actualCheckOut) continue;
-    const dateStr = rs.actualCheckOut.toISOString().split("T")[0];
-    const existing = trendMap.get(dateStr);
+    const monthKey = toMonthKey(rs.actualCheckOut);
+    const existing = trendMap.get(monthKey);
     if (existing) {
       const roomCharge = rs.numNights * Number(rs.room.nightlyRate);
       const foodCharges = rs.orderItems.reduce((sum, item) => sum + Number(item.qty) * Number(item.unitPrice), 0);

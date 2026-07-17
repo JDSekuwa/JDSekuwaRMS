@@ -7,12 +7,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import {
   DollarSign, TrendingUp, Calendar, ShoppingCart, Users, Bed,
-  AlertTriangle, Package, Loader2
+  AlertTriangle, Package, Loader2, Printer
 } from "lucide-react";
-import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend
-} from "recharts";
 import { cn } from "@/lib/utils";
 
 /* ───────────────────────────── helpers ───────────────────────────── */
@@ -184,14 +180,34 @@ export default function ReportsPage() {
     enabled: activeTab === "profit" && isSuperAdmin,
   });
 
+  const creditDetails = useQuery<any>({
+    queryKey: ["report-credit-details"],
+    queryFn: async () => {
+      const r = await fetch("/api/credit/customers?limit=100");
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+    enabled: activeTab === "credit",
+  });
+
+  const roomDetails = useQuery<any[]>({
+    queryKey: ["report-room-details"],
+    queryFn: async () => {
+      const r = await fetch("/api/rooms");
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+    enabled: activeTab === "rooms",
+  });
+
   /* helpers to check loading for current tab */
   const isLoading =
     (activeTab === "daily" && daily.isLoading) ||
     (activeTab === "trend" && trend.isLoading) ||
     (activeTab === "items" && items.isLoading) ||
     (activeTab === "purchases" && purchases.isLoading) ||
-    (activeTab === "credit" && credit.isLoading) ||
-    (activeTab === "rooms" && rooms.isLoading) ||
+    (activeTab === "credit" && (credit.isLoading || creditDetails.isLoading)) ||
+    (activeTab === "rooms" && (rooms.isLoading || roomDetails.isLoading)) ||
     (activeTab === "profit" && profit.isLoading);
 
   /* ── tab needs dates? ──────────────────────────────────────────── */
@@ -209,6 +225,17 @@ export default function ReportsPage() {
       <PageHeader
         title="Reports & Business Analytics"
         description="Access detailed financial statements, trend visualizations, and item-level performance metrics."
+        actions={
+          <button
+            onClick={() => {
+              window.open(`/print-report?tab=${activeTab}&startDate=${startDate}&endDate=${endDate}`, "_blank");
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover active:scale-[0.99] transition-all select-none"
+          >
+            <Printer className="h-4 w-4" />
+            <span>Export to PDF</span>
+          </button>
+        }
       />
 
       {/* ── tab navigation ────────────────────────────────────────── */}
@@ -270,24 +297,41 @@ export default function ReportsPage() {
             <StatCard title="Room/Stay Sales" value={rs(daily.data.roomSales)} icon={<Bed />} />
           </div>
 
-          <div className="rounded-card border border-border bg-card p-6">
-            <h4 className="text-sm font-bold text-ink mb-4">Today&apos;s Revenue Breakdown</h4>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart
-                data={[
-                  { name: "Quick Sell", value: daily.data.quickSales },
-                  { name: "Table", value: daily.data.tableSales },
-                  { name: "Room", value: daily.data.roomSales },
-                ]}
-                barSize={48}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: any) => rs(Number(v))} />
-                <Bar dataKey="value" fill="#E8590C" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="rounded-card border border-border bg-card p-6 space-y-4">
+            <h4 className="text-sm font-bold text-ink border-b border-border pb-2">Today&apos;s Revenue Accounting Breakdown</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-ink">
+                <thead>
+                  <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
+                    <th className="py-2.5 px-4">Revenue Stream</th>
+                    <th className="py-2.5 px-4 text-right">Accounting Code</th>
+                    <th className="py-2.5 px-4 text-right">Amount (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="py-2.5 px-4 font-semibold">POS Quick Sell Revenue</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-ink-muted">REV-QSELL</td>
+                    <td className="py-2.5 px-4 text-right font-mono font-bold text-success">{rs(daily.data.quickSales)}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-4 font-semibold">Table Dine-in Revenue</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-ink-muted">REV-TDINE</td>
+                    <td className="py-2.5 px-4 text-right font-mono font-bold text-success">{rs(daily.data.tableSales)}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-4 font-semibold">Rooms Lodging Revenue</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-ink-muted">REV-ROOM</td>
+                    <td className="py-2.5 px-4 text-right font-mono font-bold text-success">{rs(daily.data.roomSales)}</td>
+                  </tr>
+                  <tr className="bg-surface-sunken font-bold text-sm">
+                    <td className="py-3 px-4">Total Gross Receipts</td>
+                    <td className="py-3 px-4 text-right font-mono text-ink-muted">REV-TOTAL</td>
+                    <td className="py-3 px-4 text-right font-mono text-primary">{rs(daily.data.totalSales)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -295,62 +339,108 @@ export default function ReportsPage() {
       {/* ═══════════════ TAB: Sales Trend ═══════════════ */}
       {activeTab === "trend" && trend.data && (
         <div className="rounded-card border border-border bg-card p-6 space-y-4">
-          <h4 className="text-sm font-bold text-ink">Sales Trend — {startDate} to {endDate}</h4>
-          <ResponsiveContainer width="100%" height={340}>
-            <AreaChart data={trend.data}>
-              <defs>
-                <linearGradient id="gradTotal" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#E8590C" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#E8590C" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: any) => rs(Number(v))} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Area type="monotone" dataKey="totalSales" stroke="#E8590C" fill="url(#gradTotal)" name="Total" />
-              <Area type="monotone" dataKey="quickSales" stroke="#2563EB" fill="none" name="Quick" strokeDasharray="4 2" />
-              <Area type="monotone" dataKey="tableSales" stroke="#16A34A" fill="none" name="Table" strokeDasharray="4 2" />
-              <Area type="monotone" dataKey="roomSales" stroke="#D97706" fill="none" name="Room" strokeDasharray="4 2" />
-            </AreaChart>
-          </ResponsiveContainer>
+          <h4 className="text-sm font-bold text-ink border-b border-border pb-2">Monthly Sales Journal Ledger — {startDate} to {endDate}</h4>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-ink">
+              <thead>
+                <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
+                  <th className="py-2.5 px-4">Month</th>
+                  <th className="py-2.5 px-4 text-right">Quick Sell (NPR)</th>
+                  <th className="py-2.5 px-4 text-right">Table Dine-in (NPR)</th>
+                  <th className="py-2.5 px-4 text-right">Rooms Lodging (NPR)</th>
+                  <th className="py-2.5 px-4 text-right">Total Sales (NPR)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {trend.data.map((point) => (
+                  <tr key={point.date} className="hover:bg-surface-sunken/30">
+                    <td className="py-2.5 px-4 font-mono font-semibold">{point.date}</td>
+                    <td className="py-2.5 px-4 text-right font-mono">{rs(point.quickSales)}</td>
+                    <td className="py-2.5 px-4 text-right font-mono">{rs(point.tableSales)}</td>
+                    <td className="py-2.5 px-4 text-right font-mono">{rs(point.roomSales)}</td>
+                    <td className="py-2.5 px-4 text-right font-mono font-bold text-primary">{rs(point.totalSales)}</td>
+                  </tr>
+                ))}
+                {trend.data.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-ink-muted italic">No monthly sales log found in range.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       {/* ═══════════════ TAB: Item-wise Sales ═══════════════ */}
       {activeTab === "items" && items.data && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 animate-fade-in-up">
           {/* Best Sellers */}
           <div className="rounded-card border border-border bg-card p-6 space-y-4">
-            <h4 className="text-sm font-bold text-ink flex items-center gap-2">
+            <h4 className="text-sm font-bold text-ink border-b border-border pb-2 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-success" /> Top 5 Best Sellers
             </h4>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={items.data.bestSellers} layout="vertical" barSize={20}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis type="number" tick={{ fontSize: 10 }} />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={100} />
-                <Tooltip formatter={(v: any, name: any) => name === "qty" ? `${v} sold` : rs(Number(v))} />
-                <Bar dataKey="qty" fill="#16A34A" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-ink">
+                <thead>
+                  <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
+                    <th className="py-2.5 px-4 w-12 text-center">Rank</th>
+                    <th className="py-2.5 px-4">Item Name</th>
+                    <th className="py-2.5 px-4 text-right">Quantity Sold</th>
+                    <th className="py-2.5 px-4 text-right">Revenue (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {items.data.bestSellers.map((item, idx) => (
+                    <tr key={item.name} className="hover:bg-surface-sunken/30">
+                      <td className="py-2.5 px-4 text-center font-bold text-success font-mono">{idx + 1}</td>
+                      <td className="py-2.5 px-4 font-semibold">{item.name}</td>
+                      <td className="py-2.5 px-4 text-right font-mono">{item.qty}</td>
+                      <td className="py-2.5 px-4 text-right font-mono font-bold text-success">{rs(item.revenue)}</td>
+                    </tr>
+                  ))}
+                  {items.data.bestSellers.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-ink-muted italic">No items sold matching range.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Slow Sellers */}
           <div className="rounded-card border border-border bg-card p-6 space-y-4">
-            <h4 className="text-sm font-bold text-ink flex items-center gap-2">
+            <h4 className="text-sm font-bold text-ink border-b border-border pb-2 flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-warning" /> Top 5 Slow Movers
             </h4>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={items.data.slowSellers} layout="vertical" barSize={20}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis type="number" tick={{ fontSize: 10 }} />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={100} />
-                <Tooltip formatter={(v: any, name: any) => name === "qty" ? `${v} sold` : rs(Number(v))} />
-                <Bar dataKey="qty" fill="#D97706" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-ink">
+                <thead>
+                  <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
+                    <th className="py-2.5 px-4 w-12 text-center">Rank</th>
+                    <th className="py-2.5 px-4">Item Name</th>
+                    <th className="py-2.5 px-4 text-right">Quantity Sold</th>
+                    <th className="py-2.5 px-4 text-right">Revenue (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {items.data.slowSellers.map((item, idx) => (
+                    <tr key={item.name} className="hover:bg-surface-sunken/30">
+                      <td className="py-2.5 px-4 text-center font-bold text-warning font-mono">{idx + 1}</td>
+                      <td className="py-2.5 px-4 font-semibold">{item.name}</td>
+                      <td className="py-2.5 px-4 text-right font-mono">{item.qty}</td>
+                      <td className="py-2.5 px-4 text-right font-mono font-bold text-warning">{rs(item.revenue)}</td>
+                    </tr>
+                  ))}
+                  {items.data.slowSellers.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-ink-muted italic">No items sold matching range.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -360,70 +450,164 @@ export default function ReportsPage() {
         <div className="space-y-5">
           <StatCard title="Total Purchase Costs" value={rs(purchases.data.totalCost)} icon={<Package />} />
 
-          <div className="rounded-card border border-border bg-card p-6 space-y-4">
-            <h4 className="text-sm font-bold text-ink">Cost Breakdown by Ingredient</h4>
-            <ResponsiveContainer width="100%" height={Math.max(200, purchases.data.items.length * 36)}>
-              <BarChart data={purchases.data.items} layout="vertical" barSize={18}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis type="number" tick={{ fontSize: 10 }} />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={120} />
-                <Tooltip formatter={(v: any) => rs(Number(v))} />
-                <Bar dataKey="totalCost" fill="#2563EB" radius={[0, 4, 4, 0]} name="Cost" />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="rounded-card border border-border bg-card p-6 space-y-4 animate-fade-in-up">
+            <h4 className="text-sm font-bold text-ink border-b border-border pb-2">Acquisition Costs by Ingredient Ledger</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-ink">
+                <thead>
+                  <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
+                    <th className="py-2.5 px-4">Ingredient/Supply Name</th>
+                    <th className="py-2.5 px-4 text-right">Quantity Acquired</th>
+                    <th className="py-2.5 px-4 text-right">Total Acquisition Cost (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {purchases.data.items.map((item) => (
+                    <tr key={item.name} className="hover:bg-surface-sunken/30">
+                      <td className="py-2.5 px-4 font-semibold">{item.name}</td>
+                      <td className="py-2.5 px-4 text-right font-mono">{Number(item.qty).toFixed(2)}</td>
+                      <td className="py-2.5 px-4 text-right font-mono font-bold text-danger">{rs(item.totalCost)}</td>
+                    </tr>
+                  ))}
+                  {purchases.data.items.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="py-8 text-center text-ink-muted italic">No supplies acquired in this range.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
       {/* ═══════════════ TAB: Credit Outstanding ═══════════════ */}
       {activeTab === "credit" && credit.data && (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            title="Total Outstanding"
-            value={rs(credit.data.totalOutstanding)}
-            icon={<DollarSign />}
-            description="Active unpaid credit balances"
-          />
-          <StatCard
-            title="Overdue Amount"
-            value={rs(credit.data.totalOverdue)}
-            icon={<AlertTriangle />}
-            description="Past due date, collection pending"
-            className="border-danger/30"
-          />
-          <StatCard
-            title="Written Off"
-            value={rs(credit.data.totalWrittenOff)}
-            icon={<AlertTriangle />}
-            description="Bad debts permanently written off"
-          />
-          <StatCard
-            title="Active Customers"
-            value={credit.data.activeCustomersCount}
-            icon={<Users />}
-            description="Customers with open balances"
-          />
+        <div className="space-y-5 animate-fade-in-up">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              title="Total Outstanding"
+              value={rs(credit.data.totalOutstanding)}
+              icon={<DollarSign />}
+              description="Active unpaid credit balances"
+            />
+            <StatCard
+              title="Overdue Amount"
+              value={rs(credit.data.totalOverdue)}
+              icon={<AlertTriangle />}
+              description="Past due date, collection pending"
+              className="border-danger/30"
+            />
+            <StatCard
+              title="Written Off"
+              value={rs(credit.data.totalWrittenOff)}
+              icon={<AlertTriangle />}
+              description="Bad debts permanently written off"
+            />
+            <StatCard
+              title="Active Customers"
+              value={credit.data.activeCustomersCount}
+              icon={<Users />}
+              description="Customers with open balances"
+            />
+          </div>
+
+          <div className="rounded-card border border-border bg-card p-6 space-y-4">
+            <h4 className="text-sm font-bold text-ink border-b border-border pb-2">Active Accounts Receivable Ledger</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-ink">
+                <thead>
+                  <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
+                    <th className="py-2.5 px-4">Debtor/Customer Name</th>
+                    <th className="py-2.5 px-4 font-mono">Phone Number</th>
+                    <th className="py-2.5 px-4 text-center">Status</th>
+                    <th className="py-2.5 px-4 text-right">Outstanding Debt (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {creditDetails.data?.data?.map((c: any) => (
+                    <tr key={c.phone} className="hover:bg-surface-sunken/30">
+                      <td className="py-2.5 px-4 font-semibold">{c.customerName}</td>
+                      <td className="py-2.5 px-4 font-mono">{c.phone}</td>
+                      <td className="py-2.5 px-4 text-center">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-full text-[10px] font-extrabold select-none",
+                          c.isOverdue ? "bg-danger/10 text-danger" : "bg-warning/10 text-warning"
+                        )}>
+                          {c.isOverdue ? "OVERDUE" : "PENDING"}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono font-bold text-danger">{rs(c.totalOutstanding)}</td>
+                    </tr>
+                  ))}
+                  {(!creditDetails.data?.data || creditDetails.data.data.length === 0) && (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-ink-muted italic">No active customer debts recorded.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
       {/* ═══════════════ TAB: Room Occupancy ═══════════════ */}
       {activeTab === "rooms" && rooms.data && (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard title="Total Rooms" value={rooms.data.totalRooms} icon={<Bed />} />
-          <StatCard
-            title="Currently Occupied"
-            value={rooms.data.occupiedRoomsCount}
-            icon={<Bed />}
-            description={`${rooms.data.totalRooms > 0 ? Math.round((rooms.data.occupiedRoomsCount / rooms.data.totalRooms) * 100) : 0}% occupancy rate`}
-          />
-          <StatCard title="Nights Sold" value={rooms.data.totalNightsSold} icon={<Calendar />} />
-          <StatCard title="Room Revenue" value={rs(rooms.data.totalRoomRevenue)} icon={<DollarSign />} />
+        <div className="space-y-5 animate-fade-in-up">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard title="Total Rooms" value={rooms.data.totalRooms} icon={<Bed />} />
+            <StatCard
+              title="Currently Occupied"
+              value={rooms.data.occupiedRoomsCount}
+              icon={<Bed />}
+              description={`${rooms.data.totalRooms > 0 ? Math.round((rooms.data.occupiedRoomsCount / rooms.data.totalRooms) * 100) : 0}% occupancy rate`}
+            />
+            <StatCard title="Nights Sold" value={rooms.data.totalNightsSold} icon={<Calendar />} />
+            <StatCard title="Room Revenue" value={rs(rooms.data.totalRoomRevenue)} icon={<DollarSign />} />
+          </div>
+
+          <div className="rounded-card border border-border bg-card p-6 space-y-4">
+            <h4 className="text-sm font-bold text-ink border-b border-border pb-2">Room Occupancy & Status Log</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-ink">
+                <thead>
+                  <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
+                    <th className="py-2.5 px-4">Room Identifier</th>
+                    <th className="py-2.5 px-4 text-center">Status</th>
+                    <th className="py-2.5 px-4 text-right">Nightly Rate (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {roomDetails.data?.map((r: any) => (
+                    <tr key={r.id} className="hover:bg-surface-sunken/30">
+                      <td className="py-2.5 px-4 font-semibold">{r.name}</td>
+                      <td className="py-2.5 px-4 text-center">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-full text-[10px] font-extrabold select-none",
+                          r.status === "OCCUPIED" ? "bg-danger/10 text-danger" : "bg-success/10 text-success"
+                        )}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono">{rs(Number(r.nightlyRate || 0))}</td>
+                    </tr>
+                  ))}
+                  {(!roomDetails.data || roomDetails.data.length === 0) && (
+                    <tr>
+                      <td colSpan={3} className="py-8 text-center text-ink-muted italic">No rooms configured.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
       {/* ═══════════════ TAB: Profit Summary (Super Admin Only) ═══════════════ */}
       {activeTab === "profit" && isSuperAdmin && profit.data && (
-        <div className="space-y-5">
+        <div className="space-y-5 animate-fade-in-up">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
             <StatCard
               title="Total Revenue"
@@ -451,27 +635,49 @@ export default function ReportsPage() {
           </div>
 
           <div className="rounded-card border border-border bg-card p-6 space-y-4">
-            <h4 className="text-sm font-bold text-ink">Revenue vs Costs</h4>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart
-                data={[
-                  { name: "Revenue", value: profit.data.totalSales },
-                  { name: "Purchases", value: profit.data.totalPurchaseCost },
-                  { name: "Gross Profit", value: profit.data.grossProfit },
-                ]}
-                barSize={56}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: any) => rs(Number(v))} />
-                <Bar
-                  dataKey="value"
-                  radius={[6, 6, 0, 0]}
-                  fill="#E8590C"
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            <h4 className="text-sm font-bold text-ink border-b border-border pb-2">Profit & Loss Income Statement Ledger — {startDate} to {endDate}</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-ink">
+                <thead>
+                  <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
+                    <th className="py-2.5 px-4">Financial Item Line</th>
+                    <th className="py-2.5 px-4 text-right">Accounting Code</th>
+                    <th className="py-2.5 px-4 text-right">Amount (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="py-2.5 px-4 font-semibold text-ink">Gross Operating Revenue</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-ink-muted">PL-REV</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-success font-bold">{rs(profit.data.totalSales)}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-4 font-semibold text-ink">Cost of Goods Sold (COGS - Purchase Costs)</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-ink-muted">PL-COGS</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-danger font-bold">- {rs(profit.data.totalPurchaseCost)}</td>
+                  </tr>
+                  <tr className="bg-surface-sunken font-bold text-sm">
+                    <td className="py-3 px-4">Gross Operating Profit</td>
+                    <td className="py-3 px-4 text-right font-mono text-ink-muted">PL-GPROFIT</td>
+                    <td className={cn(
+                      "py-3 px-4 text-right font-mono",
+                      profit.data.grossProfit >= 0 ? "text-success" : "text-danger"
+                    )}>
+                      {rs(profit.data.grossProfit)}
+                    </td>
+                  </tr>
+                  <tr className="font-bold">
+                    <td className="py-2.5 px-4">Operating Profit Margin (%)</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-ink-muted">PL-MARGIN</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-primary">
+                      {profit.data.totalSales > 0
+                        ? `${((profit.data.grossProfit / profit.data.totalSales) * 100).toFixed(2)}%`
+                        : "0.00%"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

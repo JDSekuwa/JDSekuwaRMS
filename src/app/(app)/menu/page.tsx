@@ -154,11 +154,12 @@ export default function MenuConfigPage() {
 
   // Query 3: Fetch Raw Items list for recipe composer dropdowns
   const { data: rawItems = [] } = useQuery<RawItem[]>({
-    queryKey: ["inventory"],
+    queryKey: ["inventory-list-all"],
     queryFn: async () => {
-      const res = await fetch("/api/inventory");
+      const res = await fetch("/api/inventory?limit=1000");
       if (!res.ok) throw new Error("Failed to load raw items list");
-      return res.json();
+      const json = await res.json();
+      return json.data || [];
     },
     enabled: recipeOpen && isAdmin
   });

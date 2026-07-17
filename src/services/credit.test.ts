@@ -5,7 +5,8 @@ import {
   listCreditCustomers,
   getCustomerLedger,
   recordPayment,
-  writeOff
+  writeOff,
+  CreditCustomerSummary
 } from "./credit.service";
 import { Role, CreditStatus, CreditSource } from "../generated/prisma/client";
 import { ForbiddenError } from "../lib/errors";
@@ -52,7 +53,7 @@ describe("Credit Ledger Service Integration Tests (Stage B-5)", () => {
       }
     });
 
-    const customers = await listCreditCustomers();
+    const customers = (await listCreditCustomers()) as CreditCustomerSummary[];
     const customerSummary = customers.find(c => c.phone === testPhone);
 
     expect(customerSummary).toBeDefined();

@@ -64,7 +64,7 @@ describe("Purchase Service Integration Tests (Stage B-6)", () => {
     expect(Number(rawAfter!.currentStock)).toBe(initialStock + qtyPurchased);
 
     // Verify listPurchases works for Admin
-    const purchases = await listPurchases({ rawItemId: rawPorkId }, adminId);
+    const purchases = (await listPurchases({ rawItemId: rawPorkId }, adminId)) as any[];
     expect(purchases).toHaveLength(1);
     expect(purchases[0].id).toBe(purchase.id);
   });

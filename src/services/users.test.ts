@@ -83,7 +83,7 @@ describe("Users Administration Service Unit Tests", () => {
   });
 
   it("should successfully list staff profiles for SUPER_ADMIN", async () => {
-    const list = await listStaffUsers(superAdminId);
+    const list = (await listStaffUsers(superAdminId)) as any[];
     expect(list).toBeDefined();
     expect(list.length).toBeGreaterThan(0);
     expect(list[0]).toHaveProperty("email");
