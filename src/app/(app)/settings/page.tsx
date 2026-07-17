@@ -3,18 +3,22 @@
 import React, { useState, useEffect } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useQzTray } from "@/hooks/use-qz-tray";
+import { useAuth } from "@/lib/auth-context";
 import {
   Save,
   Printer,
   CheckCircle,
   AlertTriangle,
   RefreshCw,
-  Info
+  Info,
+  Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
   const { isConnected, printers } = useQzTray();
+  const { role } = useAuth();
+  const isSuperAdmin = role === "SUPER_ADMIN";
 
   // Local state for configuration settings
   const [kitchenPrinter, setKitchenPrinter] = useState("");
@@ -23,6 +27,38 @@ export default function SettingsPage() {
   const [contactPhone, setContactPhone] = useState("+977-1-4XXXXXX");
 
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleDatabaseReset = async () => {
+    const firstConfirm = window.confirm(
+      "WARNING: Are you absolutely sure you want to reset the database? " +
+      "This will erase all menu items, rooms, tables, sales records, booking stays, raw ingredients, and audit logs. " +
+      "Staff user accounts will NOT be deleted. This action is IRREVERSIBLE."
+    );
+    if (!firstConfirm) return;
+
+    const secondConfirm = window.confirm(
+      "FINAL DANGER WARNING: Press OK to wipe all system business data now."
+    );
+    if (!secondConfirm) return;
+
+    setIsResetting(true);
+    try {
+      const res = await fetch("/api/settings/reset", {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to reset database.");
+      }
+      alert(data.message || "Database reset completed successfully.");
+      window.location.reload();
+    } catch (err: any) {
+      alert(err.message || "An unexpected error occurred during database reset.");
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   // Load configuration from local storage on mount
   useEffect(() => {
@@ -212,6 +248,49 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* DANGER ZONE (Super Admin Only) */}
+      {isSuperAdmin && (
+        <div className="rounded-card border border-danger/25 bg-danger/[0.01] p-6 space-y-4 animate-fade-in-up [animation-delay:200ms]">
+          <h3 className="text-sm font-bold text-danger border-b border-danger/10 pb-2 flex items-center gap-2">
+            <AlertTriangle className="h-4.5 w-4.5" />
+            <span>Danger Zone (Administrative Operations)</span>
+          </h3>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
+            <div className="space-y-1 max-w-xl">
+              <span className="font-extrabold text-ink block">
+                Reset System Database Tables
+              </span>
+              <p className="text-ink-muted text-[11px] leading-relaxed">
+                Clears all seeded menu items, rooms, tables, ingredients, recipes, sales records, booking stays, ledger histories, and audit logs.
+                <strong> Active staff account logins will not be deleted.</strong> This operation is permanent and cannot be undone.
+              </p>
+            </div>
+
+            <button
+              onClick={handleDatabaseReset}
+              disabled={isResetting}
+              className={cn(
+                "flex items-center justify-center gap-1.5 px-4 py-2.5 bg-danger text-white text-xs font-bold rounded-control shadow-sm hover:bg-danger-hover transition-all shrink-0 active:scale-[0.98]",
+                isResetting && "opacity-50 cursor-not-allowed"
+              )}
+            >
+              {isResetting ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  <span>Resetting...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Reset Database</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

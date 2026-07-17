@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { TableStatus, RoomStatus, Unit } from "../src/generated/prisma/client";
-import { prisma } from "../src/lib/prisma";
+import { superuserPrisma as prisma } from "../src/lib/prisma";
 
 async function main() {
   console.log("Cleaning up database...");

@@ -61,7 +61,7 @@ describe("Purchase Service Integration Tests (Stage B-6)", () => {
     const rawAfter = await superuserPrisma.rawItem.findUnique({
       where: { id: rawPorkId }
     });
-    expect(Number(rawAfter!.currentStock)).toBe(initialStock + qtyPurchased);
+    expect(Number(rawAfter!.currentStock)).toBeCloseTo(initialStock + qtyPurchased, 5);
 
     // Verify listPurchases works for Admin
     const purchases = (await listPurchases({ rawItemId: rawPorkId }, adminId)) as any[];

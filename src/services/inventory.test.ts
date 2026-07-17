@@ -61,8 +61,8 @@ describe("Inventory Stock Deductions & Restoration (Stage B-2)", () => {
         const porkAfter = await tx.rawItem.findUnique({ where: { id: rawPorkId } });
         const spiceAfter = await tx.rawItem.findUnique({ where: { id: rawSpiceId } });
 
-        expect(Number(porkAfter!.currentStock)).toBe(Number(porkBefore!.currentStock) - 0.333 * qtyToSell);
-        expect(Number(spiceAfter!.currentStock)).toBe(Number(spiceBefore!.currentStock) - 0.050 * qtyToSell);
+        expect(Number(porkAfter!.currentStock)).toBeCloseTo(Number(porkBefore!.currentStock) - 0.333 * qtyToSell, 5);
+        expect(Number(spiceAfter!.currentStock)).toBeCloseTo(Number(spiceBefore!.currentStock) - 0.050 * qtyToSell, 5);
 
         throw new RollbackError(); // Rollback to keep DB clean
       });

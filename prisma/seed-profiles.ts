@@ -1,11 +1,12 @@
-import "dotenv/config";
+import { config } from "dotenv";
+config({ override: true });
 import { PrismaClient, Role } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { createAdminClient } from "../src/lib/supabase";
 
 // Initialize a superuser Prisma Client for administrative writes
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({ connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
@@ -24,13 +25,17 @@ const DEFAULT_PASSWORD = "Password123!";
 async function main() {
   console.log("Cleaning up existing profiles and auth users...");
 
-  // Fetch all existing profiles
-  const existingProfiles = await prisma.profile.findMany();
-  for (const profile of existingProfiles) {
-    console.log(`Deleting Auth user: ${profile.id}`);
-    const { error } = await supabase.auth.admin.deleteUser(profile.id);
-    if (error) {
-      console.warn(`Warning: Could not delete Auth user ${profile.id}: ${error.message}`);
+  // Fetch all existing users from Supabase Auth directly
+  const { data: { users }, error: listError } = await supabase.auth.admin.listUsers();
+  if (listError) {
+    console.warn(`Warning: Could not list Auth users: ${listError.message}`);
+  } else if (users) {
+    for (const user of users) {
+      console.log(`Deleting Auth user: ${user.id} (${user.email})`);
+      const { error } = await supabase.auth.admin.deleteUser(user.id);
+      if (error) {
+        console.warn(`Warning: Could not delete Auth user ${user.id}: ${error.message}`);
+      }
     }
   }
 

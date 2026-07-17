@@ -120,8 +120,8 @@ describe("Sales & Table Ordering Service Integration Tests (Stage B-3)", () => {
     const spiceAfter = await superuserPrisma.rawItem.findUnique({ where: { id: rawSpiceId } });
 
     // Deducts 2 plates -> 2 * 0.333 kg pork, 2 * 0.050 kg spice
-    expect(Number(porkAfter!.currentStock)).toBe(Number(porkBefore!.currentStock) - 0.333 * 2);
-    expect(Number(spiceAfter!.currentStock)).toBe(Number(spiceBefore!.currentStock) - 0.050 * 2);
+    expect(Number(porkAfter!.currentStock)).toBeCloseTo(Number(porkBefore!.currentStock) - 0.333 * 2, 5);
+    expect(Number(spiceAfter!.currentStock)).toBeCloseTo(Number(spiceBefore!.currentStock) - 0.050 * 2, 5);
 
     // 8. Verify CreditLedger record is created
     const credit = await superuserPrisma.creditLedger.findFirst({
