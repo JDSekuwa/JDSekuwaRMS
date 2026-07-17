@@ -44,6 +44,7 @@ export async function POST() {
       message: "Seeded business and transactional database tables cleared successfully."
     });
   } catch (error: any) {
+    console.error("[Database Reset Error]:", error);
     const status = error.statusCode || 500;
     return NextResponse.json(
       { error: error.message || "Failed to reset database." },

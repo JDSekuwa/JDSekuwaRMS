@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -87,6 +88,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, role, loading, signOut } = useAuth();
   const pathname = usePathname();
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  // Fetch critical low-stock items in real time
+  const { data: lowStockItems = [] } = useQuery({
+    queryKey: ["low-stock-notifications"],
+    queryFn: async () => {
+      const res = await fetch("/api/inventory/low-stock");
+      if (!res.ok) throw new Error("Failed to load notifications");
+      return res.json();
+    },
+    refetchInterval: 10000, // Refresh notifications every 10 seconds
+  });
 
   if (loading) {
     return (
@@ -275,10 +288,77 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* Notification Bell */}
-            <button className="relative p-1.5 rounded-control text-ink-muted hover:bg-surface-sunken hover:text-ink transition-colors">
-              <Bell className="h-5 w-5" />
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-danger ring-2 ring-white" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setNotificationsOpen(!notificationsOpen)}
+                className="relative p-1.5 rounded-control text-ink-muted hover:bg-surface-sunken hover:text-ink transition-colors focus:outline-none"
+              >
+                <Bell className="h-5 w-5" />
+                {lowStockItems.length > 0 && (
+                  <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[9px] font-black text-white ring-2 ring-white animate-pulse">
+                    {lowStockItems.length}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <>
+                  {/* Click-outside backdrop */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setNotificationsOpen(false)}
+                  />
+
+                  {/* Dropdown panel */}
+                  <div className="absolute right-0 mt-2.5 w-80 rounded-card border border-border bg-white p-4 shadow-xl z-50 animate-scale-in text-xs max-h-96 overflow-y-auto scrollbar-thin">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2 mb-2 select-none">
+                      <span className="font-extrabold text-ink uppercase tracking-wide">Stock Notifications</span>
+                      {lowStockItems.length > 0 && (
+                        <span className="bg-danger/10 text-danger text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                          {lowStockItems.length} Alert{lowStockItems.length > 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+
+                    {lowStockItems.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-6 text-ink-muted space-y-1.5 text-center">
+                        <div className="h-9 w-9 rounded-full bg-success/15 flex items-center justify-center text-success">
+                          ✓
+                        </div>
+                        <div>
+                          <p className="font-bold text-ink">All Clear!</p>
+                          <p className="text-[10px] text-ink-muted/70">All ingredients are within safe levels.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {lowStockItems.map((item: any) => (
+                          <div
+                            key={item.id}
+                            className="flex flex-col p-2.5 rounded-control border border-border/40 bg-surface-sunken/40 hover:bg-surface-sunken/80 transition-colors"
+                          >
+                            <div className="flex justify-between items-start">
+                              <span className="font-extrabold text-ink">{item.name}</span>
+                              <span className="text-[9px] font-bold text-danger bg-danger/10 border border-danger/20 px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                                Low Stock
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-ink-muted mt-1.5 font-mono">
+                              <span>Current:</span>
+                              <span className="font-bold text-danger">{Number(item.currentStock).toFixed(3)} {item.unit}</span>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-ink-muted font-mono">
+                              <span>Min Safety:</span>
+                              <span>{Number(item.minThreshold).toFixed(3)} {item.unit}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* User Profile Info & Avatar */}
             {user && (
