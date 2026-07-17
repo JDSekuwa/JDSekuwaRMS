@@ -10,27 +10,31 @@ export async function POST() {
 
     // Sequentially clean up the database tables using transaction
     await superuserPrisma.$transaction(async (tx) => {
-      // 1. Menu and Recipe links
+      // 1. Transactional child elements first
+      await tx.orderItem.deleteMany();
       await tx.recipeLine.deleteMany();
+      await tx.creditPayment.deleteMany();
+
+      // 2. Ledger entries referencing orders/stays
+      await tx.creditLedger.deleteMany();
+
+      // 3. Transactions referencing raw items
+      await tx.purchase.deleteMany();
+      await tx.stockAdjustment.deleteMany();
+
+      // 4. Stays and orders
+      await tx.tableOrder.deleteMany();
+      await tx.roomStay.deleteMany();
+
+      // 5. Recipe and Menu items
       await tx.recipe.deleteMany();
       await tx.menuItem.deleteMany();
       await tx.menuCategory.deleteMany();
 
-      // 2. Tables and Orders
-      await tx.orderItem.deleteMany();
-      await tx.tableOrder.deleteMany();
-      await tx.quickSale.deleteMany();
+      // 6. Base configuration tables and Quick Sales
       await tx.restaurantTable.deleteMany();
-
-      // 3. Rooms and Customer Credit
-      await tx.creditPayment.deleteMany();
-      await tx.creditLedger.deleteMany();
-      await tx.roomStay.deleteMany();
       await tx.room.deleteMany();
-
-      // 4. Inventory, Purchases, and Logs
-      await tx.purchase.deleteMany();
-      await tx.stockAdjustment.deleteMany();
+      await tx.quickSale.deleteMany();
       await tx.rawItem.deleteMany();
       await tx.auditLog.deleteMany();
     });

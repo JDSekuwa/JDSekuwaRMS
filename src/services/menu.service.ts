@@ -28,24 +28,31 @@ export async function createMenuItem(
 ): Promise<any> {
   await requireAdmin(callerUserId);
 
-  const item = await superuserPrisma.menuItem.create({
-    data: {
-      name,
-      price,
-      categoryId,
-      imageUrl
+  try {
+    const item = await superuserPrisma.menuItem.create({
+      data: {
+        name,
+        price,
+        categoryId,
+        imageUrl
+      }
+    });
+
+    await logAction(
+      callerUserId,
+      "CREATE_MENU_ITEM",
+      "MenuItem",
+      item.id,
+      { name, price, categoryId, imageUrl }
+    );
+
+    return item;
+  } catch (error: any) {
+    if (error.code === "P2002") {
+      throw new Error(`A menu item named "${name}" already exists. Please choose a different name.`);
     }
-  });
-
-  await logAction(
-    callerUserId,
-    "CREATE_MENU_ITEM",
-    "MenuItem",
-    item.id,
-    { name, price, categoryId, imageUrl }
-  );
-
-  return item;
+    throw error;
+  }
 }
 
 /**
@@ -124,22 +131,29 @@ export async function createMenuCategory(
 ): Promise<any> {
   await requireAdmin(callerUserId);
 
-  const category = await superuserPrisma.menuCategory.create({
-    data: {
-      name,
-      isKitchen
+  try {
+    const category = await superuserPrisma.menuCategory.create({
+      data: {
+        name,
+        isKitchen
+      }
+    });
+
+    await logAction(
+      callerUserId,
+      "CREATE_MENU_CATEGORY",
+      "MenuCategory",
+      category.id,
+      { name, isKitchen }
+    );
+
+    return category;
+  } catch (error: any) {
+    if (error.code === "P2002") {
+      throw new Error(`A category named "${name}" already exists. Please choose a different name.`);
     }
-  });
-
-  await logAction(
-    callerUserId,
-    "CREATE_MENU_CATEGORY",
-    "MenuCategory",
-    category.id,
-    { name, isKitchen }
-  );
-
-  return category;
+    throw error;
+  }
 }
 
 /**

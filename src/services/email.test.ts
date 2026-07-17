@@ -112,20 +112,29 @@ describe("Email Service Unit & Integration Tests (Stage B-9)", () => {
     });
 
     it("should return skipped object if no items are low in stock", async () => {
-      // Temporarily bump the low stock item
-      await superuserPrisma.rawItem.update({
-        where: { id: lowStockItemId },
-        data: { currentStock: 15.000 }
-      });
+      // Fetch all raw items in the DB
+      const allRawItems = await superuserPrisma.rawItem.findMany();
+      // Store original stocks
+      const originalStocks = allRawItems.map(item => ({ id: item.id, currentStock: Number(item.currentStock) }));
+      
+      // Bump all raw items to be above their threshold
+      for (const item of allRawItems) {
+        await superuserPrisma.rawItem.update({
+          where: { id: item.id },
+          data: { currentStock: Number(item.minThreshold) + 5 }
+        });
+      }
 
       const result = await sendLowStockDigest("manager@example.com");
       expect(result).toEqual({ skipped: true, reason: "No items below min threshold" });
 
-      // Revert stock level back to low
-      await superuserPrisma.rawItem.update({
-        where: { id: lowStockItemId },
-        data: { currentStock: 1.000 }
-      });
+      // Revert all raw items back to their original stocks
+      for (const orig of originalStocks) {
+        await superuserPrisma.rawItem.update({
+          where: { id: orig.id },
+          data: { currentStock: orig.currentStock }
+        });
+      }
     });
   });
 

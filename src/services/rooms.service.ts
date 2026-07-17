@@ -35,12 +35,19 @@ export async function createRoom(
 ): Promise<any> {
   await requireAdmin(callerUserId);
 
-  const room = await superuserPrisma.room.create({
-    data: { name, nightlyRate, imageUrl }
-  });
+  try {
+    const room = await superuserPrisma.room.create({
+      data: { name, nightlyRate, imageUrl }
+    });
 
-  await logAction(callerUserId, "CREATE_ROOM", "Room", room.id, { name, nightlyRate, imageUrl });
-  return room;
+    await logAction(callerUserId, "CREATE_ROOM", "Room", room.id, { name, nightlyRate, imageUrl });
+    return room;
+  } catch (error: any) {
+    if (error.code === "P2002") {
+      throw new Error(`A room named "${name}" already exists. Please choose a different name.`);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -318,8 +325,14 @@ export async function checkOut(
       throw new Error("Room stay is not active");
     }
 
-    // 1. Calculate stay total
-    const roomCharge = Number(roomStay.room.nightlyRate) * roomStay.numNights;
+    // Calculate actual nights dynamically from checkIn to now
+    const checkOutDate = new Date();
+    const diffTime = checkOutDate.getTime() - roomStay.checkIn.getTime();
+    const calculatedNights = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    const actualNights = Math.max(roomStay.numNights, calculatedNights);
+
+    // 1. Calculate stay total using actual nights stayed
+    const roomCharge = Number(roomStay.room.nightlyRate) * actualNights;
     let foodCharges = 0;
     for (const item of roomStay.orderItems) {
       foodCharges += Number(item.unitPrice) * item.qty;
@@ -334,7 +347,8 @@ export async function checkOut(
       },
       data: {
         status: RoomStayStatus.CHECKED_OUT,
-        actualCheckOut: new Date(),
+        actualCheckOut: checkOutDate,
+        numNights: actualNights, // Save dynamic actual nights stayed
         version: { increment: 1 }
       }
     });

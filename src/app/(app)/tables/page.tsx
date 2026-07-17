@@ -160,7 +160,6 @@ export default function TablesPage() {
   // Printer mapping configurations & hooks
   const [kitchenPrinter, setKitchenPrinter] = useState("");
   const [receptionPrinter, setReceptionPrinter] = useState("");
-  const [whatsappPhone, setWhatsappPhone] = useState("");
 
   const { isConnected: isQzConnected, printKot, printReceipt } = useQzTray();
 
@@ -213,20 +212,58 @@ export default function TablesPage() {
     }
   }, []);
 
-  const handleWhatsAppShare = () => {
-    if (!receipt) return;
-    const text = `*JD SEKUWA HOUSE*
-Invoice ID: ${receipt.id.slice(0, 8)}
-Table: ${receipt.tableName || "POS"}
-Cashier: ${receipt.cashierName}
-Total Settled: Rs. ${receipt.total}
+  const handleBrowserPrint = () => {
+    const printContent = document.getElementById("printable-receipt")?.innerHTML;
+    if (!printContent) return;
 
-Items:
-${receipt.items.map(i => `- ${i.name} x ${i.qty}: Rs. ${i.total}`).join("\n")}
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Please allow popups to print the receipt.");
+      return;
+    }
 
-Thank you for dining with us!`;
-    const url = `https://api.whatsapp.com/send?phone=${whatsappPhone}&text=${encodeURIComponent(text)}`;
-    window.open(url, "_blank");
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Receipt Print</title>
+          <style>
+            body {
+              font-family: monospace;
+              padding: 20px;
+              font-size: 14px;
+              color: black;
+            }
+            .text-center { text-align: center; }
+            .justify-between { display: flex; justify-content: space-between; }
+            .font-bold { font-weight: bold; }
+            .border-b { border-bottom: 1px solid #ccc; }
+            .border-t { border-top: 1px solid #ccc; }
+            .border-dashed { border-style: dashed; }
+            .py-1 { padding-top: 4px; padding-bottom: 4px; }
+            .pt-1.5 { padding-top: 6px; }
+            .space-y-1 > * + * { margin-top: 4px; }
+            .space-y-4 > * + * { margin-top: 16px; }
+            .text-sm { font-size: 14px; }
+            .text-[10px] { font-size: 10px; }
+            .text-ink-muted { color: #666; }
+            .font-extrabold { font-weight: 800; }
+            .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .max-w-[180px] { max-width: 180px; }
+            .w-full { width: 100%; }
+          </style>
+        </head>
+        <body>
+          <div>${printContent}</div>
+          <script>
+            window.onload = function() {
+              window.print();
+              window.close();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   /* ── 1. QUERIES ────────────────────────────────────────────────── */
@@ -1335,7 +1372,7 @@ Thank you for dining with us!`;
               className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors animate-pulse-glow"
             >
               {addItemsMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              <span>Commit Additions</span>
+              <span>Send to Kitchen (KOT)</span>
             </button>
           </>
         }
@@ -1786,7 +1823,7 @@ Thank you for dining with us!`;
         ) : (
           <div className="space-y-6">
             {/* Structured Receipt Layout */}
-            <div className="border border-border rounded-card bg-surface-sunken p-5 font-mono text-xs space-y-4">
+            <div id="printable-receipt" className="border border-border rounded-card bg-surface-sunken p-5 font-mono text-xs space-y-4">
               <div className="text-center space-y-1">
                 <h3 className="font-extrabold text-sm text-ink">JD SEKUWA HOUSE</h3>
                 <p className="text-ink-muted text-[10px]">Lalitpur, Nepal</p>
@@ -1818,33 +1855,23 @@ Thank you for dining with us!`;
                 </div>
                 <div className="flex justify-between">
                   <span>Closed At:</span>
-                  <span>{receipt.closedAt ? new Date(receipt.closedAt).toLocaleString() : ""}</span>
+                  <span>{new Date(receipt.openedAt).toLocaleString()}</span>
                 </div>
               </div>
 
-              <div className="border-b border-dashed border-border" />
-
-              {/* Items Listing */}
-              <div className="space-y-2">
-                <div className="flex font-bold text-ink">
-                  <span className="flex-1">Item Name</span>
-                  <span className="w-12 text-center">Qty</span>
-                  <span className="w-20 text-right">Price</span>
-                </div>
+              {/* Items List */}
+              <div className="space-y-1.5 border-t border-b border-dashed border-border py-3">
                 {receipt.items.map((item) => (
-                  <div key={item.id} className="flex text-ink-muted justify-between">
-                    <span className="flex-1 truncate pr-2">{item.name}</span>
-                    <span className="w-12 text-center">{item.qty}</span>
-                    <span className="w-20 text-right">{(item.unitPrice * item.qty).toFixed(2)}</span>
+                  <div key={item.id} className="flex justify-between">
+                    <span>{item.name} x{item.qty}</span>
+                    <span>Rs. {(Number(item.unitPrice) * item.qty).toFixed(2)}</span>
                   </div>
                 ))}
               </div>
 
-              <div className="border-b border-dashed border-border" />
-
-              {/* Totals */}
-              <div className="space-y-1.5 text-ink">
-                <div className="flex justify-between">
+              {/* Invoice Totals */}
+              <div className="space-y-1 text-right text-xs">
+                <div className="flex justify-between text-ink-muted">
                   <span>Subtotal</span>
                   <span>Rs. {receipt.subtotal.toFixed(2)}</span>
                 </div>
@@ -1857,24 +1884,6 @@ Thank you for dining with us!`;
                   <span>Rs. {receipt.total.toFixed(2)}</span>
                 </div>
               </div>
-            </div>
-
-            {/* WhatsApp Share Form */}
-            <div className="flex items-center gap-2 border-t border-border pt-4">
-              <input
-                type="tel"
-                placeholder="WhatsApp Phone (e.g. 97798XXXXXXXX)"
-                value={whatsappPhone}
-                onChange={(e) => setWhatsappPhone(e.target.value)}
-                className="flex-1 rounded-control border border-border px-3 py-1.5 text-xs text-ink outline-none focus:border-primary"
-              />
-              <button
-                onClick={handleWhatsAppShare}
-                disabled={!whatsappPhone}
-                className="px-3.5 py-1.5 bg-success hover:bg-success-hover text-white text-xs font-bold rounded-control disabled:opacity-50 transition-colors"
-              >
-                Share Invoice
-              </button>
             </div>
 
             <div className="flex gap-2 justify-center">
@@ -1898,7 +1907,7 @@ Thank you for dining with us!`;
 
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={handleBrowserPrint}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-sunken hover:bg-border border border-border text-ink-muted hover:text-ink text-xs font-semibold rounded-control transition-colors"
               >
                 <Printer className="h-4 w-4" />

@@ -8,7 +8,7 @@ import { DataTable, TableColumn } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Modal } from "@/components/ui/modal-sheet";
 import { PaginationControls } from "@/components/ui/pagination-controls";
-import { Scale, FileText, Loader2 } from "lucide-react";
+import { Scale, FileText, Loader2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface InventoryItem {
@@ -67,10 +67,65 @@ export default function InventoryPage() {
   const [recipeLines, setRecipeLines] = useState<Array<{ rawItemId: string; qtyPerUnit: number }>>([]);
   const [recipeError, setRecipeError] = useState<string | null>(null);
 
+  // Add Raw Item states
+  const [addRawModalOpen, setAddRawModalOpen] = useState(false);
+  const [addRawName, setAddRawName] = useState("");
+  const [addRawUnit, setAddRawUnit] = useState("KG");
+  const [addRawMinThreshold, setAddRawMinThreshold] = useState("");
+  const [addRawCostPrice, setAddRawCostPrice] = useState("");
+  const [addRawCurrentStock, setAddRawCurrentStock] = useState("");
+  const [addRawError, setAddRawError] = useState<string | null>(null);
+
   // Pagination states
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Mutation: Create raw item
+  const createRawMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Failed to create raw item");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      setAddRawModalOpen(false);
+      setAddRawName("");
+      setAddRawUnit("KG");
+      setAddRawMinThreshold("");
+      setAddRawCostPrice("");
+      setAddRawCurrentStock("");
+      setAddRawError(null);
+    },
+    onError: (err: any) => {
+      setAddRawError(err.message || "Failed to add raw item");
+    }
+  });
+
+  const handleAddRawSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addRawName || !addRawUnit || !addRawMinThreshold || !addRawCostPrice) {
+      setAddRawError("Please fill out all required fields.");
+      return;
+    }
+
+    setAddRawError(null);
+    createRawMutation.mutate({
+      name: addRawName,
+      unit: addRawUnit,
+      minThreshold: parseFloat(addRawMinThreshold),
+      costPrice: parseFloat(addRawCostPrice),
+      currentStock: parseFloat(addRawCurrentStock) || 0
+    });
+  };
 
   // 1. Query raw items list
   const { data: paginatedData, isLoading: isInvLoading } = useQuery<{ data: InventoryItem[]; pagination: any }>({
@@ -291,17 +346,34 @@ export default function InventoryPage() {
         description="Monitor physical stock levels and update menu ingredient configurations."
         actions={
           isAdmin && (
-            <button
-              onClick={() => {
-                setSelectedMenuId("");
-                setRecipeLines([]);
-                setRecipeModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover active:scale-[0.99] transition-all"
-            >
-              <FileText className="h-4 w-4" />
-              <span>Recipe Builder</span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setAddRawName("");
+                  setAddRawUnit("KG");
+                  setAddRawMinThreshold("");
+                  setAddRawCostPrice("");
+                  setAddRawCurrentStock("");
+                  setAddRawError(null);
+                  setAddRawModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-success text-white text-xs font-semibold rounded-control shadow-sm hover:bg-success-hover active:scale-[0.99] transition-all"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add Raw Item</span>
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedMenuId("");
+                  setRecipeLines([]);
+                  setRecipeModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover active:scale-[0.99] transition-all"
+              >
+                <FileText className="h-4 w-4" />
+                <span>Recipe Builder</span>
+              </button>
+            </div>
           )
         }
       />
@@ -612,6 +684,127 @@ export default function InventoryPage() {
             {recipeError && (
               <div className="rounded-control border border-danger/25 bg-danger/10 p-3 text-xs text-danger">
                 {recipeError}
+              </div>
+            )}
+          </form>
+        </Modal>
+      )}
+
+      {/* MODAL 3: ADD NEW RAW ITEM */}
+      {isAdmin && (
+        <Modal
+          isOpen={addRawModalOpen}
+          onClose={() => {
+            setAddRawModalOpen(false);
+            setAddRawError(null);
+          }}
+          title="Add New Raw Inventory Item"
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setAddRawModalOpen(false)}
+                className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="add-raw-form"
+                disabled={createRawMutation.isPending}
+                className="flex items-center gap-1.5 px-4 py-2 bg-success text-white text-xs font-semibold rounded-control shadow-sm hover:bg-success-hover disabled:opacity-50 transition-colors"
+              >
+                {createRawMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                <span>Create Item</span>
+              </button>
+            </>
+          }
+        >
+          <form id="add-raw-form" onSubmit={handleAddRawSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-ink-muted uppercase mb-1.5">
+                Ingredient Name *
+              </label>
+              <input
+                type="text"
+                value={addRawName}
+                onChange={(e) => setAddRawName(e.target.value)}
+                placeholder="e.g. Garlic, Pork Belly, Buffalo Meat"
+                required
+                className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-ink-muted uppercase mb-1.5">
+                  Measurement Unit *
+                </label>
+                <select
+                  value={addRawUnit}
+                  onChange={(e) => setAddRawUnit(e.target.value)}
+                  required
+                  className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink bg-white outline-none focus:border-primary"
+                >
+                  <option value="KG">KG (Kilogram)</option>
+                  <option value="LITRE">LITRE (Litre)</option>
+                  <option value="PIECE">PIECE (Piece)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-ink-muted uppercase mb-1.5">
+                  Initial Stock Level
+                </label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={addRawCurrentStock}
+                  onChange={(e) => setAddRawCurrentStock(e.target.value)}
+                  placeholder="e.g. 10.0"
+                  className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-ink-muted uppercase mb-1.5">
+                  Min Safety Threshold *
+                </label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={addRawMinThreshold}
+                  onChange={(e) => setAddRawMinThreshold(e.target.value)}
+                  placeholder="e.g. 5.0"
+                  required
+                  className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-ink-muted uppercase mb-1.5">
+                  Cost Price per Unit (NPR) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={addRawCostPrice}
+                  onChange={(e) => setAddRawCostPrice(e.target.value)}
+                  placeholder="e.g. 650.00"
+                  required
+                  className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+
+            {addRawError && (
+              <div className="rounded-control border border-danger/25 bg-danger/10 p-3 text-xs text-danger">
+                {addRawError}
               </div>
             )}
           </form>

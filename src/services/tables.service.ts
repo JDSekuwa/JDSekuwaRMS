@@ -23,12 +23,19 @@ export async function createTable(
 ): Promise<any> {
   await requireAdmin(callerUserId);
 
-  const table = await superuserPrisma.restaurantTable.create({
-    data: { name, imageUrl }
-  });
+  try {
+    const table = await superuserPrisma.restaurantTable.create({
+      data: { name, imageUrl }
+    });
 
-  await logAction(callerUserId, "CREATE_TABLE", "RestaurantTable", table.id, { name, imageUrl });
-  return table;
+    await logAction(callerUserId, "CREATE_TABLE", "RestaurantTable", table.id, { name, imageUrl });
+    return table;
+  } catch (error: any) {
+    if (error.code === "P2002") {
+      throw new Error(`A table named "${name}" already exists. Please choose a different name.`);
+    }
+    throw error;
+  }
 }
 
 /**

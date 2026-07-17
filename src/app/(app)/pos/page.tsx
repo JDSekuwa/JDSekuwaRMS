@@ -80,7 +80,6 @@ export default function PosPage() {
 
   // Printer mapping configurations & hooks
   const [receptionPrinter, setReceptionPrinter] = useState("");
-  const [whatsappPhone, setWhatsappPhone] = useState("");
 
   const { isConnected: isQzConnected, printReceipt } = useQzTray();
 
@@ -95,20 +94,58 @@ export default function PosPage() {
     }
   }, []);
 
-  const handleWhatsAppShare = () => {
-    if (!receipt) return;
-    const text = `*JD SEKUWA HOUSE*
-Invoice ID: ${receipt.id.slice(0, 8)}
-Table: ${receipt.tableName || "POS"}
-Cashier: ${receipt.cashierName}
-Total Settled: Rs. ${receipt.total}
+  const handleBrowserPrint = () => {
+    const printContent = document.getElementById("printable-receipt")?.innerHTML;
+    if (!printContent) return;
 
-Items:
-${receipt.items.map(i => `- ${i.name} x ${i.qty}: Rs. ${i.total}`).join("\n")}
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Please allow popups to print the receipt.");
+      return;
+    }
 
-Thank you for dining with us!`;
-    const url = `https://api.whatsapp.com/send?phone=${whatsappPhone}&text=${encodeURIComponent(text)}`;
-    window.open(url, "_blank");
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Receipt Print</title>
+          <style>
+            body {
+              font-family: monospace;
+              padding: 20px;
+              font-size: 14px;
+              color: black;
+            }
+            .text-center { text-align: center; }
+            .justify-between { display: flex; justify-content: space-between; }
+            .font-bold { font-weight: bold; }
+            .border-b { border-bottom: 1px solid #ccc; }
+            .border-t { border-top: 1px solid #ccc; }
+            .border-dashed { border-style: dashed; }
+            .py-1 { padding-top: 4px; padding-bottom: 4px; }
+            .pt-1.5 { padding-top: 6px; }
+            .space-y-1 > * + * { margin-top: 4px; }
+            .space-y-4 > * + * { margin-top: 16px; }
+            .text-sm { font-size: 14px; }
+            .text-[10px] { font-size: 10px; }
+            .text-ink-muted { color: #666; }
+            .font-extrabold { font-weight: 800; }
+            .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .max-w-[180px] { max-width: 180px; }
+            .w-full { width: 100%; }
+          </style>
+        </head>
+        <body>
+          <div>${printContent}</div>
+          <script>
+            window.onload = function() {
+              window.print();
+              window.close();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   // 1. Fetch Categories & Menu Items for grid
@@ -572,7 +609,7 @@ Thank you for dining with us!`;
           <div className="space-y-6">
             
             {/* Structured Receipt Layout */}
-            <div className="border border-border rounded-card bg-surface-sunken p-5 font-mono text-xs space-y-4">
+            <div id="printable-receipt" className="border border-border rounded-card bg-surface-sunken p-5 font-mono text-xs space-y-4">
               <div className="text-center space-y-1">
                 <h3 className="font-extrabold text-sm text-ink">JD SEKUWA HOUSE</h3>
                 <p className="text-ink-muted text-[10px]">Lalitpur, Nepal</p>
@@ -649,24 +686,6 @@ Thank you for dining with us!`;
               </div>
             </div>
 
-            {/* WhatsApp Share Form */}
-            <div className="flex items-center gap-2 border-t border-border pt-4">
-              <input
-                type="tel"
-                placeholder="WhatsApp Phone (e.g. 97798XXXXXXXX)"
-                value={whatsappPhone}
-                onChange={(e) => setWhatsappPhone(e.target.value)}
-                className="flex-1 rounded-control border border-border px-3 py-1.5 text-xs text-ink outline-none focus:border-primary"
-              />
-              <button
-                onClick={handleWhatsAppShare}
-                disabled={!whatsappPhone}
-                className="px-3.5 py-1.5 bg-success hover:bg-success-hover text-white text-xs font-bold rounded-control disabled:opacity-50 transition-colors"
-              >
-                Share Invoice
-              </button>
-            </div>
-
             <div className="flex gap-2 justify-center">
               {isQzConnected && receptionPrinter ? (
                 <button
@@ -688,7 +707,7 @@ Thank you for dining with us!`;
 
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={handleBrowserPrint}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-sunken hover:bg-border border border-border text-ink-muted hover:text-ink text-xs font-semibold rounded-control transition-colors"
               >
                 <Printer className="h-4 w-4" />

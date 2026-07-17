@@ -312,11 +312,16 @@ export default function RoomsPage() {
   const handleCheckInSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoom) return;
-    if (!expectedCheckOut) { setCheckInError("Please choose a valid checkout date."); return; }
+
+    // Default to 1 day (24 hours) from now if not specified
+    const checkOutDate = expectedCheckOut 
+      ? new Date(expectedCheckOut).toISOString() 
+      : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
     setCheckInError(null);
     checkInMutation.mutate({
       roomId: selectedRoom.id,
-      payload: { guestName, phone, idProof, numGuests, expectedCheckOut: new Date(expectedCheckOut).toISOString() }
+      payload: { guestName, phone, idProof, numGuests, expectedCheckOut: checkOutDate }
     });
   };
 
@@ -902,8 +907,8 @@ export default function RoomsPage() {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">Expected Check-out Date</label>
-            <input type="datetime-local" value={expectedCheckOut} onChange={(e) => setExpectedCheckOut(e.target.value)} required
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">Expected Check-out Date (Optional)</label>
+            <input type="datetime-local" value={expectedCheckOut} onChange={(e) => setExpectedCheckOut(e.target.value)}
               className="w-full rounded-control border border-border px-3 py-2 text-xs text-ink outline-none focus:border-primary" />
           </div>
 

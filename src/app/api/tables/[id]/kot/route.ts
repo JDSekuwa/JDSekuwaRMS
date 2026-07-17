@@ -1,6 +1,7 @@
 import { requireRole } from "@/services/auth.service";
 import { Role } from "@/generated/prisma/client";
 import { buildKotPayload } from "@/services/print.service";
+import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
 /**
@@ -13,9 +14,20 @@ export async function GET(
 ) {
   try {
     await requireRole([Role.WORKER, Role.ADMIN, Role.SUPER_ADMIN]);
-    const { id: tableOrderId } = await params;
+    const { id: tableId } = await params;
 
-    const payload = await buildKotPayload(tableOrderId);
+    const openOrder = await prisma.tableOrder.findFirst({
+      where: { tableId, status: "OPEN" }
+    });
+
+    if (!openOrder) {
+      return NextResponse.json(
+        { error: "No open order found for this table" },
+        { status: 404 }
+      );
+    }
+
+    const payload = await buildKotPayload(openOrder.id);
     return NextResponse.json(payload);
   } catch (error: any) {
     const status = error.statusCode || 500;

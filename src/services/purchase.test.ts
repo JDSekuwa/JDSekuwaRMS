@@ -28,6 +28,11 @@ describe("Purchase Service Integration Tests (Stage B-6)", () => {
     }
     rawPorkId = porkRaw.id;
     initialStock = Number(porkRaw.currentStock);
+
+    // Clear pre-existing test purchases for rawPorkId to guarantee test isolated conditions
+    await superuserPrisma.purchase.deleteMany({
+      where: { rawItemId: rawPorkId }
+    });
   });
 
   afterEach(async () => {

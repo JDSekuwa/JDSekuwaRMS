@@ -64,8 +64,12 @@ describe("Reports Service Integration Tests (Stage B-7)", () => {
 
   afterAll(async () => {
     // Clean up created logs
-    await superuserPrisma.purchase.delete({ where: { id: testPurchaseId } });
-    await superuserPrisma.quickSale.delete({ where: { id: testQuickSaleId } });
+    if (testPurchaseId) {
+      await superuserPrisma.purchase.delete({ where: { id: testPurchaseId } }).catch(() => {});
+    }
+    if (testQuickSaleId) {
+      await superuserPrisma.quickSale.delete({ where: { id: testQuickSaleId } }).catch(() => {});
+    }
   });
 
   it("should calculate getDailySalesSummary correctly including the seeded QuickSale", async () => {

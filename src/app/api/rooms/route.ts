@@ -41,9 +41,16 @@ export async function GET() {
     const mappedRooms = rooms.map((room) => {
       const activeStay = room.stays[0] || null;
       let stayTotal = null;
+      let currentNights = 1;
 
       if (activeStay) {
-        const roomCharge = isWorker ? 0 : Number(room.nightlyRate) * activeStay.numNights;
+        // Calculate nights dynamically to support dynamic checkout and open stays
+        const checkInTime = new Date(activeStay.checkIn).getTime();
+        const currentTime = new Date().getTime();
+        const calculatedNights = Math.max(1, Math.ceil((currentTime - checkInTime) / (1000 * 60 * 60 * 24)));
+        currentNights = Math.max(activeStay.numNights, calculatedNights);
+
+        const roomCharge = isWorker ? 0 : Number(room.nightlyRate) * currentNights;
         const foodCharges = activeStay.orderItems.reduce(
           (sum, item) => sum + Number(item.unitPrice) * item.qty,
           0
@@ -66,7 +73,7 @@ export async function GET() {
               numGuests: activeStay.numGuests,
               checkIn: activeStay.checkIn,
               expectedCheckOut: activeStay.expectedCheckOut,
-              numNights: activeStay.numNights,
+              numNights: currentNights, // Return calculated nights
               orderItems: activeStay.orderItems.map((item) => ({
                 id: item.id,
                 name: item.menuItem.name,

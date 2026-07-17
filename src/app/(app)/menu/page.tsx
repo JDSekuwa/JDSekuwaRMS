@@ -120,6 +120,8 @@ export default function MenuConfigPage() {
 
   // Operational feedback banners
   const [apiError, setApiError] = useState<string | null>(null);
+  const [catError, setCatError] = useState<string | null>(null);
+  const [deletingCatId, setDeletingCatId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   /* ── 1. DATA QUERIES ────────────────────────────────────────────── */
@@ -340,11 +342,11 @@ export default function MenuConfigPage() {
     },
     onSuccess: () => {
       setNewCatName("");
-      setApiError(null);
+      setCatError(null);
       queryClient.invalidateQueries({ queryKey: ["pos-menu"] });
     },
     onError: (err: any) => {
-      setApiError(err.message);
+      setCatError(err.message);
     }
   });
 
@@ -361,12 +363,14 @@ export default function MenuConfigPage() {
       return res.json();
     },
     onSuccess: () => {
-      setApiError(null);
+      setCatError(null);
+      setSuccessMsg("Category deleted successfully.");
+      setTimeout(() => setSuccessMsg(null), 4000);
       queryClient.invalidateQueries({ queryKey: ["pos-menu"] });
       queryClient.invalidateQueries({ queryKey: ["menu-items"] });
     },
     onError: (err: any) => {
-      setApiError(err.message);
+      setCatError(err.message);
     }
   });
 
@@ -1062,7 +1066,8 @@ export default function MenuConfigPage() {
         isOpen={categoriesOpen}
         onClose={() => {
           setCategoriesOpen(false);
-          setApiError(null);
+          setCatError(null);
+          setDeletingCatId(null);
         }}
         title="Manage Product Categories"
         className="max-w-2xl"
@@ -1076,9 +1081,9 @@ export default function MenuConfigPage() {
         }
       >
         <div className="space-y-6">
-          {apiError && (
+          {catError && (
             <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
-              {apiError}
+              {catError}
             </div>
           )}
 
@@ -1118,9 +1123,10 @@ export default function MenuConfigPage() {
                 type="button"
                 onClick={() => {
                   if (!newCatName) {
-                    setApiError("Category name is required.");
+                    setCatError("Category name is required.");
                     return;
                   }
+                  setCatError(null);
                   createCategoryMutation.mutate({ name: newCatName, isKitchen: newCatIsKitchen });
                 }}
                 disabled={createCategoryMutation.isPending}
@@ -1148,18 +1154,42 @@ export default function MenuConfigPage() {
                     />
                   </div>
 
-                  <button
-                    onClick={() => {
-                      if (confirm(`Are you sure you want to delete category "${cat.name}"? This will delete all products in this category.`)) {
-                        deleteCategoryMutation.mutate(cat.id);
-                      }
-                    }}
-                    disabled={deleteCategoryMutation.isPending}
-                    className="text-ink-muted/50 hover:text-danger p-1 transition-colors"
-                    title="Delete Category"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {deletingCatId === cat.id ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-danger font-extrabold animate-pulse">Are you sure?</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCatError(null);
+                          deleteCategoryMutation.mutate(cat.id);
+                          setDeletingCatId(null);
+                        }}
+                        className="px-2 py-1 bg-danger hover:bg-danger/90 text-white text-[10px] font-black rounded-control transition-colors"
+                      >
+                        Yes, Delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeletingCatId(null)}
+                        className="px-2 py-1 bg-surface-sunken hover:bg-surface-sunken/80 text-ink-muted text-[10px] font-bold rounded-control transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCatError(null);
+                        setDeletingCatId(cat.id);
+                      }}
+                      disabled={deleteCategoryMutation.isPending}
+                      className="text-ink-muted/50 hover:text-danger p-1 transition-colors"
+                      title="Delete Category"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

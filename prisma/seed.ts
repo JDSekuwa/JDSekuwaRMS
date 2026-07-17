@@ -6,14 +6,22 @@ async function main() {
   console.log("Cleaning up database...");
 
   // Delete in reverse order of dependencies to avoid foreign key violations
+  await prisma.creditPayment.deleteMany({});
+  await prisma.creditLedger.deleteMany({});
+  await prisma.purchase.deleteMany({});
+  await prisma.stockAdjustment.deleteMany({});
+  await prisma.orderItem.deleteMany({});
+  await prisma.tableOrder.deleteMany({});
+  await prisma.quickSale.deleteMany({});
+  await prisma.auditLog.deleteMany({});
   await prisma.recipeLine.deleteMany({});
   await prisma.recipe.deleteMany({});
   await prisma.menuItem.deleteMany({});
   await prisma.menuCategory.deleteMany({});
   await prisma.rawItem.deleteMany({});
-  await prisma.restaurantTable.deleteMany({});
   await prisma.roomStay.deleteMany({});
   await prisma.room.deleteMany({});
+  await prisma.restaurantTable.deleteMany({});
 
   console.log("Seeding tables...");
   const tables = [];
