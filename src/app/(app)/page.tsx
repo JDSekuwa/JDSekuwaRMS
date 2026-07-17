@@ -48,6 +48,7 @@ interface DashboardData {
     name: string;
     status: string;
     nightlyRate: number | null;
+    imageUrl?: string | null;
   }>;
   tables: Array<{
     id: string;
@@ -55,6 +56,7 @@ interface DashboardData {
     status: string;
     currentTag: string | null;
     openOrderTotal: number | null;
+    imageUrl?: string | null;
   }>;
 }
 
@@ -392,41 +394,64 @@ export default function DashboardPage() {
 
           {/* Tables layout grid */}
           <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 max-h-[400px] overflow-y-auto pr-1 scrollbar-thin">
-            {tables.map((table) => {
+            {tables.map((table, index) => {
               const isOccupied = table.status === "OCCUPIED";
               const isReserved = table.status === "RESERVED";
               const isVacant = table.status === "VACANT";
 
+              const ambientImages = [
+                "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
+                "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&q=80",
+                "https://images.unsplash.com/photo-1424847651672-bf20a4b0982b?w=600&q=80",
+                "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&q=80",
+                "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=600&q=80",
+                "https://images.unsplash.com/photo-1550966871-3ed3cfd8a5d3?w=600&q=80",
+                "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=600&q=80",
+                "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=80",
+              ];
+              const bgImage = table.imageUrl || ambientImages[index % ambientImages.length];
+
               return (
                 <div
                   key={table.id}
-                  className={cn(
-                    "group relative rounded-card border p-4 flex flex-col justify-between h-[115px] transition-all duration-300 select-none overflow-hidden hover:-translate-y-1 hover:shadow-md",
-                    isOccupied && "border-primary/40 bg-primary/[0.03] dark:bg-primary/[0.08] shadow-xs",
-                    isReserved && "border-warning/40 bg-warning/[0.03] dark:bg-warning/[0.08] shadow-xs",
-                    isVacant && "border-border hover:border-success/40 bg-card hover:bg-success/[0.02]"
-                  )}
+                  className="group relative rounded-card border border-border/80 p-4 flex flex-col justify-between h-[115px] transition-all duration-300 select-none overflow-hidden hover:-translate-y-1 hover:shadow-lg bg-black"
                 >
+                  {/* Background photo */}
+                  <div
+                    className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105 opacity-80"
+                    style={{ backgroundImage: `url('${bgImage}')` }}
+                  />
+
+                  {/* Status-aware gradient scrim */}
+                  <div className={cn(
+                    "absolute inset-0 transition-opacity duration-300",
+                    isOccupied
+                      ? "bg-gradient-to-t from-black/95 via-black/70 to-primary/30"
+                      : isReserved
+                      ? "bg-gradient-to-t from-black/95 via-black/70 to-warning/30"
+                      : "bg-gradient-to-t from-black/90 via-black/60 to-black/35 group-hover:from-black/85"
+                  )} />
+
                   {/* Chairs Visual Representation */}
-                  <div className="absolute top-1/2 left-1.5 -translate-y-1/2 flex flex-col gap-1.5 pointer-events-none">
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-ink-muted/15")} />
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-ink-muted/15")} />
+                  <div className="absolute top-1/2 left-1.5 -translate-y-1/2 flex flex-col gap-1.5 pointer-events-none z-10">
+                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
+                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
                   </div>
-                  <div className="absolute top-1/2 right-1.5 -translate-y-1/2 flex flex-col gap-1.5 pointer-events-none">
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-ink-muted/15")} />
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-ink-muted/15")} />
+                  <div className="absolute top-1/2 right-1.5 -translate-y-1/2 flex flex-col gap-1.5 pointer-events-none z-10">
+                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
+                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
                   </div>
-                  <div className="absolute top-1.5 left-1/2 -translate-x-1/2 flex gap-1.5 pointer-events-none">
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-ink-muted/15")} />
+                  <div className="absolute top-1.5 left-1/2 -translate-x-1/2 flex gap-1.5 pointer-events-none z-10">
+                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
                   </div>
-                  <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1.5 pointer-events-none">
-                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-ink-muted/15")} />
+                  <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1.5 pointer-events-none z-10">
+                    <div className={cn("h-1.5 w-1.5 rounded-full transition-all duration-300", isOccupied ? "bg-primary animate-pulse" : isReserved ? "bg-warning" : "bg-white/20")} />
                   </div>
 
                   {/* Main Details */}
                   <div className="z-10 pl-2 pr-2">
                     <div className="flex items-center justify-between">
-                      <h4 className="font-extrabold text-xs text-ink group-hover:text-primary transition-colors">{table.name}</h4>
+                      <h4 className="font-extrabold text-xs text-white group-hover:text-primary transition-colors">{table.name}</h4>
                       {/* Active Status indicator dot */}
                       <span className={cn(
                         "h-2 w-2 rounded-full inline-block shrink-0 shadow-xs relative",
@@ -441,21 +466,21 @@ export default function DashboardPage() {
                     </div>
                     
                     {table.currentTag ? (
-                      <p className="text-[10px] text-ink-muted mt-1 truncate font-bold uppercase tracking-wider max-w-[110px]" title={table.currentTag}>
+                      <p className="text-[10px] text-white/70 mt-1 truncate font-bold uppercase tracking-wider max-w-[110px]" title={table.currentTag}>
                         {table.currentTag}
                       </p>
                     ) : (
-                      <p className="text-[9px] text-ink-muted/40 mt-1 italic font-medium">
+                      <p className="text-[9px] text-white/40 mt-1 italic font-medium">
                         No Active Bill
                       </p>
                     )}
                   </div>
 
                   {/* Status Badge & Open running total */}
-                  <div className="z-10 pl-2 pr-2 flex items-center justify-between border-t border-border/40 pt-1.5 mt-1.5">
+                  <div className="z-10 pl-2 pr-2 flex items-center justify-between border-t border-white/10 pt-1.5 mt-1.5">
                     <StatusBadge status={table.status} className="text-[8px] font-extrabold tracking-wider px-1.5 py-0" />
                     {table.openOrderTotal !== null && table.openOrderTotal > 0 && (
-                      <span className="text-[10px] font-black text-primary tabular-nums tracking-tight">
+                      <span className="text-[10px] font-black text-white tabular-nums tracking-tight">
                         Rs. {Number(table.openOrderTotal).toFixed(0)}
                       </span>
                     )}
@@ -499,30 +524,50 @@ export default function DashboardPage() {
 
           {/* Rooms List Grid */}
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 max-h-[400px] overflow-y-auto pr-1 scrollbar-thin">
-            {rooms.map((room) => {
+            {rooms.map((room, index) => {
               const isOccupied = room.status === "OCCUPIED";
               const isVacant = room.status === "VACANT";
+
+              const hotelImages = [
+                "https://images.unsplash.com/photo-1611891487122-2075b962442f?w=600&q=80",
+                "https://images.unsplash.com/photo-1590490360182-c33d57733427?w=600&q=80",
+                "https://images.unsplash.com/photo-1566665797739-1674de7a421a?w=600&q=80",
+                "https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=600&q=80",
+                "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=600&q=80",
+                "https://images.unsplash.com/photo-1540518614846-7eded433c457?w=600&q=80",
+              ];
+              const bgImage = room.imageUrl || hotelImages[index % hotelImages.length];
 
               return (
                 <div
                   key={room.id}
-                  className={cn(
-                    "group relative rounded-card border p-4 flex flex-col justify-between h-[115px] transition-all duration-300 select-none overflow-hidden hover:-translate-y-1 hover:shadow-md",
-                    isOccupied && "border-info/40 bg-info/[0.03] dark:bg-info/[0.08] shadow-xs",
-                    isVacant && "border-border hover:border-success/40 bg-card hover:bg-success/[0.02]"
-                  )}
+                  className="group relative rounded-card border border-border/80 p-4 flex flex-col justify-between h-[115px] transition-all duration-300 select-none overflow-hidden hover:-translate-y-1 hover:shadow-lg bg-black"
                 >
+                  {/* Background photo */}
+                  <div
+                    className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105 opacity-80"
+                    style={{ backgroundImage: `url('${bgImage}')` }}
+                  />
+
+                  {/* Status-aware gradient scrim */}
+                  <div className={cn(
+                    "absolute inset-0 transition-opacity duration-300",
+                    isOccupied
+                      ? "bg-gradient-to-t from-black/95 via-black/70 to-info/30"
+                      : "bg-gradient-to-t from-black/90 via-black/60 to-black/35 group-hover:from-black/85"
+                  )} />
+
                   {/* Decorative faint background icon */}
-                  <div className="absolute -right-2.5 -bottom-2.5 text-ink-muted/5 opacity-[0.03] transform -rotate-12 pointer-events-none group-hover:scale-110 transition-transform duration-300">
+                  <div className="absolute -right-2.5 -bottom-2.5 text-white/5 opacity-[0.03] transform -rotate-12 pointer-events-none group-hover:scale-110 transition-transform duration-300 z-10">
                     <Bed className="h-14 w-14" />
                   </div>
 
                   {/* Main Details */}
-                  <div>
+                  <div className="z-10">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-1.5">
-                        <Bed className={cn("h-4 w-4 shrink-0 transition-colors duration-300", isOccupied ? "text-info" : "text-ink-muted/30")} />
-                        <h4 className="font-extrabold text-xs text-ink">{room.name}</h4>
+                        <Bed className={cn("h-4 w-4 shrink-0 transition-colors duration-300", isOccupied ? "text-info" : "text-white/30")} />
+                        <h4 className="font-extrabold text-xs text-white">{room.name}</h4>
                       </div>
                       <span className={cn(
                         "h-2 w-2 rounded-full inline-block shrink-0 shadow-xs",
@@ -537,19 +582,19 @@ export default function DashboardPage() {
                         Guest Boarded Stay
                       </p>
                     ) : (
-                      <p className="text-[9px] text-ink-muted/55 mt-2 italic font-medium">
+                      <p className="text-[9px] text-white/55 mt-2 italic font-medium">
                         Vacant & Cleaned
                       </p>
                     )}
                   </div>
 
                   {/* Room checkout rates */}
-                  <div className="flex items-center justify-between border-t border-border/40 pt-1.5 mt-1.5">
+                  <div className="flex items-center justify-between border-t border-white/10 pt-1.5 mt-1.5 z-10">
                     <StatusBadge status={room.status} className="text-[8px] font-extrabold tracking-wider px-1.5 py-0" />
                     {room.nightlyRate !== null && (
-                      <div className="text-right z-10">
-                        <span className="text-[10px] font-extrabold text-ink tabular-nums tracking-tight">
-                          Rs. {Number(room.nightlyRate).toFixed(0)} <span className="text-[8px] text-ink-muted font-normal font-sans">/ night</span>
+                      <div className="text-right">
+                        <span className="text-[10px] font-extrabold text-white tabular-nums tracking-tight">
+                          Rs. {Number(room.nightlyRate).toFixed(0)} <span className="text-[8px] text-white/70 font-normal font-sans">/ night</span>
                         </span>
                       </div>
                     )}

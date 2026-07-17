@@ -428,6 +428,50 @@ To enable silent thermal printing of KOTs and sales receipts on local cash regis
 - **Visibility Gating**: The Profit Summary tab is only rendered in the tab bar when the logged-in user holds the `SUPER_ADMIN` role. The backend endpoint `/api/reports/profit-summary` also rejects non-Super-Admin callers.
 - **Presentation**: Three StatCards (Total Revenue, Total Purchase Costs, Gross Profit with margin percentage) and a vertical bar chart comparing Revenue vs Costs vs Gross Profit.
 
+## Testing Layer
+
+### Unit & Integration Test Coverage
+- **Backend Services**: Verified all operational business rules:
+  - Auth, Audit Trail, and Gating (`auth.test.ts`, `users.test.ts`)
+  - Inventory stock deduction, restoration snapshot locking, and recipes (`inventory.test.ts`, `menu.test.ts`)
+  - Dine-in tables open/close transactions, optimistic table concurrency (`sales.test.ts`, `tables.test.ts`)
+  - Room lodging stays, service charge posting, credit entry consolidation (`rooms.test.ts`)
+  - Debts partial repayment logic and Admin write-offs (`credit.test.ts`)
+  - Supplier purchases listing constraints (`purchase.test.ts`)
+  - Reports aggregates computations and dashboard data stripping (`reports.test.ts`, `dashboard.test.ts`)
+  - Printer payload converters and email alert templating (`print.test.ts`, `email.test.ts`)
+- **Execution Command**:
+  ```bash
+  npx vitest run
+  ```
+
+## Deployment Layer
+
+### Production Database Setup
+1. Create a production Supabase project at [database.supabase.com](https://database.supabase.com).
+2. Retrieve the transaction connection pool string (`DATABASE_URL`), direct migration string (`DIRECT_URL`), and restricted database role URL (`APP_DATABASE_URL`).
+3. Run migrations and compile client:
+   ```bash
+   npx prisma migrate deploy
+   ```
+4. Apply custom PostgreSQL RLS policies migration using the superuser credentials.
+
+### Production Environment Variables
+- `DATABASE_URL` (Postgres pooling URL)
+- `DIRECT_URL` (Direct migration link)
+- `APP_DATABASE_URL` (RLS app role restricted link)
+- `NEXT_PUBLIC_SUPABASE_URL` (Production endpoint URL)
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Anon key)
+- `SUPABASE_SERVICE_ROLE_KEY` (Service role key for user admin API)
+- `RESEND_API_KEY` (For low-stock and overdue credit email dispatches)
+
+### Vercel & Cloudflare Setup
+1. Link GitHub repository to Vercel and enter the production environment variables list.
+2. In Cloudflare DNS:
+   - Add CNAME record for `jdsekuwahouse.com.np` pointing to `cname.vercel-dns.com`.
+   - Enable SSL/TLS encryption setting to **Full (strict)**.
+3. Add initial Admin accounts and enter menu items details inside the production settings page.
+
 
 
 

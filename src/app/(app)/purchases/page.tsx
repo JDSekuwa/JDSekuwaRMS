@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal-sheet";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import { Plus, Filter, Loader2, Calendar, ClipboardList } from "lucide-react";
 
 interface RawItem {
@@ -39,6 +40,11 @@ export default function PurchasesPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
+  // Pagination & Search state
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [searchQuery, setSearchQuery] = useState("");
+
   // Record Purchase Modal form states
   const [recordModalOpen, setRecordModalOpen] = useState(false);
   const [selectedRawItemId, setSelectedRawItemId] = useState("");
@@ -58,19 +64,24 @@ export default function PurchasesPage() {
   });
 
   // 2. Fetch filterable purchases history list
-  const { data: purchases = [], isLoading: isPurchasesLoading } = useQuery<PurchaseRecord[]>({
-    queryKey: ["purchases", filterRawItemId, startDate, endDate],
+  const { data: paginatedData, isLoading: isPurchasesLoading } = useQuery<{ data: PurchaseRecord[]; pagination: any }>({
+    queryKey: ["purchases", filterRawItemId, startDate, endDate, page, limit, searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filterRawItemId) params.append("rawItemId", filterRawItemId);
       if (startDate) params.append("startDate", startDate);
       if (endDate) params.append("endDate", endDate);
+      params.append("page", String(page));
+      params.append("limit", String(limit));
+      if (searchQuery) params.append("search", searchQuery);
 
       const res = await fetch(`/api/purchases?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to retrieve purchases history");
       return res.json();
     }
   });
+  const purchases = paginatedData?.data || [];
+  const pagination = paginatedData?.pagination;
 
   // 3. Mutation: Record new purchase
   const recordMutation = useMutation({
@@ -135,6 +146,8 @@ export default function PurchasesPage() {
     setFilterRawItemId("");
     setStartDate("");
     setEndDate("");
+    setSearchQuery("");
+    setPage(1);
   };
 
   // Table Columns
@@ -202,14 +215,17 @@ export default function PurchasesPage() {
           <Filter className="h-4 w-4 text-ink-muted" />
           <h4 className="text-xs font-bold text-ink uppercase">Filter Purchases</h4>
         </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
           <div>
             <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
               Raw Ingredient
             </label>
             <select
               value={filterRawItemId}
-              onChange={(e) => setFilterRawItemId(e.target.value)}
+              onChange={(e) => {
+                setFilterRawItemId(e.target.value);
+                setPage(1);
+              }}
               className="w-full rounded-control border border-border px-3 py-1.5 text-xs text-ink bg-white outline-none focus:border-primary"
             >
               <option value="">-- All Ingredients --</option>
@@ -223,12 +239,31 @@ export default function PurchasesPage() {
 
           <div>
             <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+              Search Ingredient
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Pork..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-control border border-border px-3 py-1.5 text-xs text-ink outline-none focus:border-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
               Start Date
             </label>
             <input
               type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPage(1);
+              }}
               className="w-full rounded-control border border-border px-3 py-1.5 text-xs text-ink outline-none focus:border-primary"
             />
           </div>
@@ -240,13 +275,35 @@ export default function PurchasesPage() {
             <input
               type="date"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPage(1);
+              }}
               className="w-full rounded-control border border-border px-3 py-1.5 text-xs text-ink outline-none focus:border-primary"
             />
           </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+              Show Limit
+            </label>
+            <select
+              value={limit}
+              onChange={(e) => {
+                setLimit(parseInt(e.target.value, 10));
+                setPage(1);
+              }}
+              className="w-full rounded-control border border-border px-3 py-1.5 text-xs text-ink bg-white outline-none focus:border-primary"
+            >
+              <option value={10}>10 records</option>
+              <option value={15}>15 records</option>
+              <option value={25}>25 records</option>
+              <option value={50}>50 records</option>
+            </select>
+          </div>
         </div>
 
-        {(filterRawItemId || startDate || endDate) && (
+        {(filterRawItemId || startDate || endDate || searchQuery) && (
           <div className="flex justify-end pt-2">
             <button
               onClick={handleClearFilters}
@@ -264,11 +321,22 @@ export default function PurchasesPage() {
           <Loader2 className="h-8 w-8 animate-spin" />
         </div>
       ) : (
-        <DataTable
-          columns={columns}
-          data={purchases}
-          emptyMessage="No purchase records match the selected filters."
-        />
+        <div className="space-y-4">
+          <DataTable
+            columns={columns}
+            data={purchases}
+            emptyMessage="No purchase records match the selected filters."
+          />
+          {pagination && (
+            <PaginationControls
+              currentPage={page}
+              totalPages={pagination.totalPages}
+              totalItems={pagination.totalItems}
+              limit={limit}
+              onPageChange={(p) => setPage(p)}
+            />
+          )}
+        </div>
       )}
 
       {/* MODAL 5: RECORD NEW PURCHASE */}

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Modal } from "@/components/ui/modal-sheet";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import { CreditCard, History, Plus, Scale, Loader2, AlertCircle, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +45,11 @@ export default function CreditPage() {
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [selectedCustomerName, setSelectedCustomerName] = useState<string>("");
 
+  // Pagination & Search state
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [searchQuery, setSearchQuery] = useState("");
+
   // Payment modal parameters
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedLedgerId, setSelectedLedgerId] = useState<string | null>(null);
@@ -51,14 +57,16 @@ export default function CreditPage() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
   // 1. Fetch outstanding credit customer summaries list
-  const { data: customers = [], isLoading: isCustLoading } = useQuery<CustomerSummary[]>({
-    queryKey: ["credit-customers"],
+  const { data: paginatedData, isLoading: isCustLoading } = useQuery<{ data: CustomerSummary[]; pagination: any }>({
+    queryKey: ["credit-customers", page, limit, searchQuery],
     queryFn: async () => {
-      const res = await fetch("/api/credit/customers");
+      const res = await fetch(`/api/credit/customers?page=${page}&limit=${limit}&search=${encodeURIComponent(searchQuery)}`);
       if (!res.ok) throw new Error("Failed to load credit customer summaries");
       return res.json();
     }
   });
+  const customers = paginatedData?.data || [];
+  const pagination = paginatedData?.pagination;
 
   // 2. Fetch passbook details for selected customer phone
   const { data: passbook = [], isLoading: isPassbookLoading, refetch: refetchPassbook } = useQuery<CreditLedgerEntry[]>({
@@ -185,24 +193,61 @@ export default function CreditPage() {
         {/* LEFT COLUMN: Customer summaries list */}
         <div className="flex-1 space-y-4">
           <div className="border border-border rounded-card bg-card p-5 space-y-3">
-            <h3 className="font-bold text-ink text-sm border-b border-border pb-2.5">
-              Outstanding Accounts
-            </h3>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-border pb-2.5 select-none">
+              <h3 className="font-bold text-ink text-sm">
+                Outstanding Accounts
+              </h3>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <input
+                  type="text"
+                  placeholder="Search customer..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setPage(1);
+                  }}
+                  className="rounded-control border border-border bg-surface-sunken/45 px-2.5 py-1 text-xs text-ink placeholder-ink-muted/60 outline-none focus:border-primary focus:bg-card transition-all w-full sm:w-40"
+                />
+                <select
+                  value={limit}
+                  onChange={(e) => {
+                    setLimit(parseInt(e.target.value, 10));
+                    setPage(1);
+                  }}
+                  className="rounded-control border border-border bg-card text-ink font-semibold px-2 py-0.5 text-xs outline-none focus:border-primary cursor-pointer"
+                >
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={25}>25</option>
+                </select>
+              </div>
+            </div>
             {isCustLoading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             ) : (
-              <DataTable
-                columns={summaryColumns}
-                data={customers}
-                onRowClick={(row: CustomerSummary) => {
-                  setSelectedPhone(row.phone);
-                  setSelectedCustomerName(row.customerName);
-                }}
-                emptyMessage="No customer outstanding credit ledgers found."
-                className={cn(selectedPhone && "border-primary/20")}
-              />
+              <div className="space-y-4">
+                <DataTable
+                  columns={summaryColumns}
+                  data={customers}
+                  onRowClick={(row: CustomerSummary) => {
+                    setSelectedPhone(row.phone);
+                    setSelectedCustomerName(row.customerName);
+                  }}
+                  emptyMessage="No customer outstanding credit ledgers found."
+                  className={cn(selectedPhone && "border-primary/20")}
+                />
+                {pagination && (
+                  <PaginationControls
+                    currentPage={page}
+                    totalPages={pagination.totalPages}
+                    totalItems={pagination.totalItems}
+                    limit={limit}
+                    onPageChange={(p) => setPage(p)}
+                  />
+                )}
+              </div>
             )}
           </div>
         </div>

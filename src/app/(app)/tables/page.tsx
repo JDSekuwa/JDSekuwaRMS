@@ -40,6 +40,7 @@ interface TableSummary {
   currentTag: string | null;
   version: number;
   openOrderTotal: number;
+  imageUrl?: string | null;
 }
 
 interface MenuItem {
@@ -162,6 +163,43 @@ export default function TablesPage() {
   const [whatsappPhone, setWhatsappPhone] = useState("");
 
   const { isConnected: isQzConnected, printKot, printReceipt } = useQzTray();
+
+  // Manage Floor states
+  const [manageFloorOpen, setManageFloorOpen] = useState(false);
+  const [newTableName, setNewTableName] = useState("");
+  const [newTableImageUrl, setNewTableImageUrl] = useState("");
+  const [editingTableId, setEditingTableId] = useState<string | null>(null);
+  const [editingTableName, setEditingTableName] = useState("");
+  const [editingTableImageUrl, setEditingTableImageUrl] = useState("");
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [floorError, setFloorError] = useState<string | null>(null);
+
+  const handleImageUpload = async (file: File, type: "new" | "edit") => {
+    setUploadingImage(true);
+    setFloorError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Image upload failed");
+      }
+      const data = await res.json();
+      if (type === "new") {
+        setNewTableImageUrl(data.url);
+      } else {
+        setEditingTableImageUrl(data.url);
+      }
+    } catch (err: any) {
+      setFloorError(err.message || "Failed to upload image.");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -464,6 +502,70 @@ Thank you for dining with us!`;
     onError: handleMutationError
   });
 
+  // Create, Update, Delete table mutations
+  const createTableMutation = useMutation({
+    mutationFn: async (payload: { name: string; imageUrl?: string | null }) => {
+      const res = await fetch("/api/tables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to create table");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setNewTableName("");
+      setNewTableImageUrl("");
+      setFloorError(null);
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+    },
+    onError: (err: any) => setFloorError(err.message)
+  });
+
+  const updateTableMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: { name: string; imageUrl?: string | null } }) => {
+      const res = await fetch(`/api/tables/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to update table");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setEditingTableId(null);
+      setEditingTableName("");
+      setEditingTableImageUrl("");
+      setFloorError(null);
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+    },
+    onError: (err: any) => setFloorError(err.message)
+  });
+
+  const deleteTableMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/tables/${id}`, {
+        method: "DELETE"
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to delete table");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setFloorError(null);
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+    },
+    onError: (err: any) => setFloorError(err.message)
+  });
+
   /* ── 4. CART HELPERS ────────────────────────────────────────────── */
 
   const handleAddToCart = (item: MenuItem) => {
@@ -530,6 +632,16 @@ Thank you for dining with us!`;
         description="Monitor active tables, process floor bills, transfer table tickets, and combine dine-in accounts."
         actions={
           <div className="flex items-center gap-3">
+            {isAdmin && (
+              <button
+                onClick={() => setManageFloorOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover transition-all duration-200 select-none active:scale-[0.98]"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Manage Floor</span>
+              </button>
+            )}
+
             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-success/15 text-success rounded-full text-[10px] font-bold tracking-wide uppercase border border-success/20 select-none shadow-xs">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
@@ -665,7 +777,7 @@ Thank you for dining with us!`;
               "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=600&q=80",
               "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=80",
             ];
-            const bgImage = ambientImages[index % ambientImages.length];
+            const bgImage = table.imageUrl || ambientImages[index % ambientImages.length];
 
             return (
               <div
@@ -788,6 +900,231 @@ Thank you for dining with us!`;
           })}
         </div>
       )}
+
+      {/* MODAL FOR FLOOR MANAGEMENT */}
+      <Modal
+        isOpen={manageFloorOpen}
+        onClose={() => {
+          setManageFloorOpen(false);
+          setEditingTableId(null);
+          setNewTableName("");
+          setNewTableImageUrl("");
+          setFloorError(null);
+        }}
+        title="Manage Restaurant Floor Plan"
+        className="max-w-3xl"
+        footer={
+          <button
+            onClick={() => {
+              setManageFloorOpen(false);
+              setEditingTableId(null);
+              setNewTableName("");
+              setNewTableImageUrl("");
+              setFloorError(null);
+            }}
+            className="px-4 py-2 bg-surface-sunken hover:bg-border text-ink text-xs font-semibold rounded-control transition-colors"
+          >
+            Close Panel
+          </button>
+        }
+      >
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* LEFT SIDE: ADD/EDIT FORM */}
+            <div className="space-y-4 border-r border-border pr-0 md:pr-6">
+              <h4 className="text-xs font-black text-ink-muted uppercase tracking-wider">
+                {editingTableId ? "Edit Table Details" : "Add New Table"}
+              </h4>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                    Table Designation / Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editingTableId ? editingTableName : newTableName}
+                    onChange={(e) => {
+                      if (editingTableId) setEditingTableName(e.target.value);
+                      else setNewTableName(e.target.value);
+                    }}
+                    placeholder="e.g. Table 9, Private Cabin A"
+                    className="w-full rounded-control border border-border px-3 py-2 text-xs text-ink outline-none focus:border-primary bg-card"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                    Ambiance Image (Optional)
+                  </label>
+                  <div className="space-y-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImageUpload(file, editingTableId ? "edit" : "new");
+                      }}
+                      className="w-full text-xs text-ink-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-control file:border-0 file:text-[11px] file:font-black file:bg-primary/10 file:text-primary hover:file:bg-primary/20 file:cursor-pointer"
+                    />
+                    {uploadingImage && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-primary font-semibold">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span>Uploading image to server...</span>
+                      </div>
+                    )}
+                    {(editingTableId ? editingTableImageUrl : newTableImageUrl) && (
+                      <div className="relative h-20 w-32 rounded-control overflow-hidden border border-border mt-1.5">
+                        <img
+                          src={editingTableId ? editingTableImageUrl : newTableImageUrl}
+                          alt="Ambiance preview"
+                          className="h-full w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editingTableId) setEditingTableImageUrl("");
+                            else setNewTableImageUrl("");
+                          }}
+                          className="absolute top-1 right-1 p-0.5 bg-black/70 text-white hover:text-danger rounded-full"
+                          title="Remove image"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  {editingTableId ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (!editingTableName) return;
+                          updateTableMutation.mutate({
+                            id: editingTableId,
+                            payload: { name: editingTableName, imageUrl: editingTableImageUrl || null }
+                          });
+                        }}
+                        disabled={updateTableMutation.isPending || uploadingImage}
+                        className="flex-1 py-2 bg-primary text-white font-bold rounded-control hover:bg-primary-hover transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                      >
+                        {updateTableMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                        Save Edits
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingTableId(null);
+                          setEditingTableName("");
+                          setEditingTableImageUrl("");
+                        }}
+                        className="px-3 py-2 bg-surface-sunken hover:bg-border text-ink font-semibold rounded-control transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (!newTableName) return;
+                        createTableMutation.mutate({
+                          name: newTableName,
+                          imageUrl: newTableImageUrl || null
+                        });
+                      }}
+                      disabled={createTableMutation.isPending || uploadingImage}
+                      className="w-full py-2 bg-primary text-white font-bold rounded-control hover:bg-primary-hover transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                    >
+                      {createTableMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                      Add Table
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT SIDE: LIST OF TABLES */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-black text-ink-muted uppercase tracking-wider">
+                Existing Tables ({tables.length})
+              </h4>
+              <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 scrollbar-thin">
+                {tables.map((t) => {
+                  const isDeletable = t.status === "VACANT" && t.openOrderTotal === 0;
+
+                  return (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between p-2.5 rounded-control border border-border bg-surface-sunken/45 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        {t.imageUrl ? (
+                          <img
+                            src={t.imageUrl}
+                            alt={t.name}
+                            className="h-8 w-12 rounded-control object-cover border border-border"
+                          />
+                        ) : (
+                          <div className="h-8 w-12 rounded-control bg-border/50 flex items-center justify-center text-ink-muted">
+                            <Utensils className="h-3.5 w-3.5" />
+                          </div>
+                        )}
+                        <div>
+                          <span className="font-extrabold text-ink">{t.name}</span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              t.status === "OCCUPIED" && "bg-primary animate-pulse",
+                              t.status === "RESERVED" && "bg-warning",
+                              t.status === "VACANT" && "bg-success"
+                            )} />
+                            <span className="text-[9px] font-bold text-ink-muted uppercase tracking-wide">
+                              {t.status}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            setEditingTableId(t.id);
+                            setEditingTableName(t.name);
+                            setEditingTableImageUrl(t.imageUrl || "");
+                          }}
+                          className="p-1 text-ink-muted hover:text-primary transition-colors hover:bg-border rounded-control"
+                          title="Edit Table"
+                        >
+                          <Plus className="h-3.5 w-3.5 rotate-45" />
+                        </button>
+                        <button
+                          disabled={!isDeletable || deleteTableMutation.isPending}
+                          onClick={() => {
+                            if (confirm(`Are you sure you want to delete table '${t.name}'?`)) {
+                              deleteTableMutation.mutate(t.id);
+                            }
+                          }}
+                          className="p-1 text-ink-muted hover:text-danger disabled:opacity-30 transition-colors hover:bg-border rounded-control"
+                          title={isDeletable ? "Delete Table" : "Cannot delete occupied/billed table"}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {floorError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-3 text-xs text-danger">
+              {floorError}
+            </div>
+          )}
+        </div>
+      </Modal>
 
       {/* MODAL 1: OPEN VACANT TABLE */}
       <Modal

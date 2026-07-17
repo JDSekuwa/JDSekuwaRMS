@@ -1,7 +1,15 @@
 import { requireRole } from "@/services/auth.service";
 import { Role } from "@/generated/prisma/client";
 import { superuserPrisma } from "@/lib/prisma";
+import { createRoom } from "@/services/rooms.service";
 import { NextResponse } from "next/server";
+import { z } from "zod";
+
+const createRoomSchema = z.object({
+  name: z.string().min(1, "Room name is required"),
+  nightlyRate: z.number().positive("Nightly rate must be positive"),
+  imageUrl: z.string().nullable().optional()
+});
 
 /**
  * GET /api/rooms: retrieves all rooms and includes active stays if occupied.
@@ -48,6 +56,7 @@ export async function GET() {
         name: room.name,
         status: room.status,
         nightlyRate: isWorker ? null : Number(room.nightlyRate),
+        imageUrl: room.imageUrl,
         activeStay: activeStay
           ? {
               id: activeStay.id,
@@ -72,6 +81,35 @@ export async function GET() {
     });
 
     return NextResponse.json(mappedRooms);
+  } catch (error: any) {
+    const status = error.statusCode || 500;
+    return NextResponse.json(
+      { error: error.message || "Internal Server Error" },
+      { status }
+    );
+  }
+}
+
+/**
+ * POST /api/rooms: create a new room.
+ * Accessible to ADMIN and SUPER_ADMIN.
+ */
+export async function POST(request: Request) {
+  try {
+    const caller = await requireRole([Role.ADMIN, Role.SUPER_ADMIN]);
+    const body = await request.json();
+
+    const result = createRoomSchema.safeParse(body);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: "Invalid input", details: result.error.format() },
+        { status: 400 }
+      );
+    }
+
+    const { name, nightlyRate, imageUrl } = result.data;
+    const room = await createRoom(caller.id, name, nightlyRate, imageUrl);
+    return NextResponse.json(room);
   } catch (error: any) {
     const status = error.statusCode || 500;
     return NextResponse.json(

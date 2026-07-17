@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Modal } from "@/components/ui/modal-sheet";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import {
   Plus,
   Edit2,
@@ -123,16 +124,22 @@ export default function MenuConfigPage() {
 
   /* ── 1. DATA QUERIES ────────────────────────────────────────────── */
 
+  // Pagination states
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+
   // Query 1: Fetch all menu items + categories + recipe line ids
-  const { data: menuItems = [], isLoading: isItemsLoading, refetch: refetchItems } = useQuery<MenuItem[]>({
-    queryKey: ["menu-items"],
+  const { data: paginatedData, isLoading: isItemsLoading, refetch: refetchItems } = useQuery<{ data: MenuItem[]; pagination: any }>({
+    queryKey: ["menu-items", page, limit, searchQuery, selectedCatId],
     queryFn: async () => {
-      const res = await fetch("/api/menu-items");
+      const res = await fetch(`/api/menu-items?page=${page}&limit=${limit}&search=${encodeURIComponent(searchQuery)}&categoryId=${selectedCatId}`);
       if (!res.ok) throw new Error("Failed to load menu items");
       return res.json();
     },
     enabled: isAdmin
   });
+  const menuItems = paginatedData?.data || [];
+  const pagination = paginatedData?.pagination;
 
   // Query 2: Fetch POS categories for selects
   const { data: posData } = useQuery<MenuData>({
@@ -413,11 +420,7 @@ export default function MenuConfigPage() {
 
   /* ── 5. GRID FILTERS & COLUMNS ──────────────────────────────────── */
 
-  const filteredItems = menuItems.filter((item) => {
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCatId === "ALL" || item.categoryId === selectedCatId;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredItems = menuItems;
 
   const columns = [
     {
@@ -577,21 +580,41 @@ export default function MenuConfigPage() {
 
       {/* FILTERS & SEARCH MODULE */}
       <div className="rounded-card border border-border bg-card p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs animate-fade-in-up [animation-delay:50ms]">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-muted" />
-          <input
-            type="text"
-            placeholder="Search products name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-control border border-border bg-surface-sunken/40 pl-9 pr-4 py-1.5 text-xs text-ink placeholder-ink-muted/70 outline-none focus:border-primary focus:bg-card transition-all"
-          />
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-muted" />
+            <input
+              type="text"
+              placeholder="Search products name..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-control border border-border bg-surface-sunken/45 pl-9 pr-4 py-1.5 text-xs text-ink placeholder-ink-muted/70 outline-none focus:border-primary focus:bg-card transition-all"
+            />
+          </div>
+          <select
+            value={limit}
+            onChange={(e) => {
+              setLimit(parseInt(e.target.value, 10));
+              setPage(1);
+            }}
+            className="rounded-control border border-border bg-card text-ink font-semibold px-2 py-1.5 text-xs outline-none focus:border-primary cursor-pointer select-none shadow-xs"
+          >
+            <option value={10}>10 Show</option>
+            <option value={15}>15 Show</option>
+            <option value={25}>25 Show</option>
+          </select>
         </div>
 
         {/* Category Tabs */}
         <div className="flex gap-1 overflow-x-auto max-w-full pb-1 select-none scrollbar-none">
           <button
-            onClick={() => setSelectedCatId("ALL")}
+            onClick={() => {
+              setSelectedCatId("ALL");
+              setPage(1);
+            }}
             className={cn(
               "px-3 py-1.5 rounded-full text-[10px] font-extrabold tracking-wide uppercase whitespace-nowrap transition-colors",
               selectedCatId === "ALL"
@@ -604,7 +627,10 @@ export default function MenuConfigPage() {
           {posData?.categories.map((cat) => (
             <button
               key={cat.id}
-              onClick={() => setSelectedCatId(cat.id)}
+              onClick={() => {
+                setSelectedCatId(cat.id);
+                setPage(1);
+              }}
               className={cn(
                 "px-3 py-1.5 rounded-full text-[10px] font-extrabold tracking-wide uppercase whitespace-nowrap transition-colors",
                 selectedCatId === cat.id
@@ -624,8 +650,19 @@ export default function MenuConfigPage() {
           <Loader2 className="h-10 w-10 animate-spin" />
         </div>
       ) : (
-        <div className="bg-card border border-border rounded-card p-1.5 shadow-sm overflow-hidden animate-fade-in-up [animation-delay:100ms]">
-          <DataTable columns={columns} data={filteredItems} />
+        <div className="space-y-4 animate-fade-in-up [animation-delay:100ms]">
+          <div className="bg-card border border-border rounded-card p-1.5 shadow-sm overflow-hidden">
+            <DataTable columns={columns} data={filteredItems} />
+          </div>
+          {pagination && (
+            <PaginationControls
+              currentPage={page}
+              totalPages={pagination.totalPages}
+              totalItems={pagination.totalItems}
+              limit={limit}
+              onPageChange={(p) => setPage(p)}
+            />
+          )}
         </div>
       )}
 
@@ -637,7 +674,7 @@ export default function MenuConfigPage() {
           setApiError(null);
           setSelectedItem(null);
         }}
-        title={selectedItem ? `Modify Product — ${selectedItem.name}` : "Add Menu Product"}
+        title={selectedItem ? `Modify Product — ${selectedItem?.name}` : "Add Menu Product"}
         footer={
           <>
             <button
@@ -926,7 +963,7 @@ export default function MenuConfigPage() {
                   <div className="space-y-3 text-xs select-none">
                     <div className="flex justify-between text-ink-muted">
                       <span>Customer Price:</span>
-                      <span className="font-bold text-ink font-mono">Rs. {parseFloat(selectedItem.price).toFixed(2)}</span>
+                      <span className="font-bold text-ink font-mono">Rs. {parseFloat(selectedItem!.price).toFixed(2)}</span>
                     </div>
 
                     <div className="flex justify-between text-ink-muted">
@@ -938,17 +975,17 @@ export default function MenuConfigPage() {
                       <span>Profit Margin:</span>
                       <span className={cn(
                         "font-mono tabular-nums",
-                        parseFloat(selectedItem.price) - recipeCost > 0 ? "text-success" : "text-danger"
+                        parseFloat(selectedItem!.price) - recipeCost > 0 ? "text-success" : "text-danger"
                       )}>
-                        Rs. {(parseFloat(selectedItem.price) - recipeCost).toFixed(2)}
+                        Rs. {(parseFloat(selectedItem!.price) - recipeCost).toFixed(2)}
                       </span>
                     </div>
 
                     <div className="flex justify-between font-bold text-ink-muted text-[10px]">
                       <span>Margin Percent:</span>
                       <span className="font-mono tabular-nums">
-                        {parseFloat(selectedItem.price) > 0
-                          ? `${(((parseFloat(selectedItem.price) - recipeCost) / parseFloat(selectedItem.price)) * 100).toFixed(0)}%`
+                        {parseFloat(selectedItem!.price) > 0
+                          ? `${(((parseFloat(selectedItem!.price) - recipeCost) / parseFloat(selectedItem!.price)) * 100).toFixed(0)}%`
                           : "0%"}
                       </span>
                     </div>

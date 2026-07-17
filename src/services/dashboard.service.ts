@@ -20,7 +20,7 @@ export async function getDashboardData(role: Role, userId: string) {
   }
 
   // 2. Stock Alerts (Ingredients below min threshold)
-  const inventory = await getInventoryList(role);
+  const { items: inventory } = await getInventoryList(role);
   const stockAlerts = inventory
     .filter(item => item.currentStock < item.minThreshold)
     .map(item => ({
@@ -35,7 +35,8 @@ export async function getDashboardData(role: Role, userId: string) {
   let creditReminders: any[] = [];
   if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
     const credits = await listCreditCustomers();
-    creditReminders = credits.slice(0, 5);
+    const creditsArray = Array.isArray(credits) ? credits : credits.data;
+    creditReminders = creditsArray.slice(0, 5);
   }
 
   // 4. Room Status Summary
@@ -46,7 +47,8 @@ export async function getDashboardData(role: Role, userId: string) {
     id: r.id,
     name: r.name,
     status: r.status,
-    nightlyRate: role === Role.WORKER ? null : Number(r.nightlyRate)
+    nightlyRate: role === Role.WORKER ? null : Number(r.nightlyRate),
+    imageUrl: r.imageUrl
   }));
 
   // 5. Table Status Summary
@@ -76,6 +78,7 @@ export async function getDashboardData(role: Role, userId: string) {
       name: t.name,
       status: t.status,
       currentTag: t.currentTag,
+      imageUrl: t.imageUrl,
       openOrderTotal
     };
   });

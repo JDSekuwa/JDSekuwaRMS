@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, TableColumn } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Modal } from "@/components/ui/modal-sheet";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import { Scale, FileText, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -66,15 +67,22 @@ export default function InventoryPage() {
   const [recipeLines, setRecipeLines] = useState<Array<{ rawItemId: string; qtyPerUnit: number }>>([]);
   const [recipeError, setRecipeError] = useState<string | null>(null);
 
+  // Pagination states
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [searchQuery, setSearchQuery] = useState("");
+
   // 1. Query raw items list
-  const { data: inventory = [], isLoading: isInvLoading, refetch: refetchInventory } = useQuery<InventoryItem[]>({
-    queryKey: ["inventory"],
+  const { data: paginatedData, isLoading: isInvLoading } = useQuery<{ data: InventoryItem[]; pagination: any }>({
+    queryKey: ["inventory", page, limit, searchQuery],
     queryFn: async () => {
-      const res = await fetch("/api/inventory");
+      const res = await fetch(`/api/inventory?page=${page}&limit=${limit}&search=${encodeURIComponent(searchQuery)}`);
       if (!res.ok) throw new Error("Failed to load inventory");
       return res.json();
     }
   });
+  const inventory = paginatedData?.data || [];
+  const pagination = paginatedData?.pagination;
 
   // 2. Query menu items list (only for Admin/SuperAdmin for recipe building)
   const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
@@ -298,17 +306,60 @@ export default function InventoryPage() {
         }
       />
 
+      {/* Search and Limit Filter Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-card border border-border bg-card shadow-xs">
+        <div className="relative w-full sm:w-72">
+          <input
+            type="text"
+            placeholder="Search raw ingredients..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(1); // Reset to page 1 on search
+            }}
+            className="w-full rounded-control border border-border bg-surface-sunken/45 pl-3 pr-4 py-1.5 text-xs text-ink placeholder-ink-muted/60 outline-none focus:border-primary focus:bg-card transition-all"
+          />
+        </div>
+        <div className="flex items-center gap-2 self-end sm:self-auto select-none">
+          <span className="text-xs text-ink-muted">Show:</span>
+          <select
+            value={limit}
+            onChange={(e) => {
+              setLimit(parseInt(e.target.value, 10));
+              setPage(1);
+            }}
+            className="rounded-control border border-border bg-card text-ink font-semibold px-2.5 py-1 text-xs outline-none focus:border-primary shadow-xs cursor-pointer"
+          >
+            <option value={10}>10 records</option>
+            <option value={15}>15 records</option>
+            <option value={25}>25 records</option>
+            <option value={50}>50 records</option>
+          </select>
+        </div>
+      </div>
+
       {/* Main inventory datatable list */}
       {isInvLoading ? (
         <div className="flex h-[30vh] w-full items-center justify-center text-primary">
           <Loader2 className="h-8 w-8 animate-spin" />
         </div>
       ) : (
-        <DataTable
-          columns={columns}
-          data={inventory}
-          emptyMessage="No inventory raw items found."
-        />
+        <div className="space-y-4">
+          <DataTable
+            columns={columns}
+            data={inventory}
+            emptyMessage="No inventory raw items found."
+          />
+          {pagination && (
+            <PaginationControls
+              currentPage={page}
+              totalPages={pagination.totalPages}
+              totalItems={pagination.totalItems}
+              limit={limit}
+              onPageChange={(p) => setPage(p)}
+            />
+          )}
+        </div>
       )}
 
       {/* MODAL 1: ADJUST STOCK */}

@@ -62,7 +62,9 @@ export async function upsertCreditEntry(
  * Retrieves credit customers summaries grouped by phone.
  * Excludes PAID and WRITTEN_OFF ledger entries.
  */
-export async function listCreditCustomers(): Promise<CreditCustomerSummary[]> {
+export async function listCreditCustomers(
+  options?: { skip?: number; take?: number; search?: string }
+): Promise<CreditCustomerSummary[] | { data: CreditCustomerSummary[]; total: number }> {
   const ledgers = await prisma.creditLedger.findMany({
     where: {
       status: {
@@ -105,7 +107,16 @@ export async function listCreditCustomers(): Promise<CreditCustomerSummary[]> {
     }
   }
 
-  const result = Array.from(summaryMap.values());
+  let result = Array.from(summaryMap.values());
+
+  if (options?.search) {
+    const searchLower = options.search.toLowerCase();
+    result = result.filter(
+      (r) =>
+        r.customerName.toLowerCase().includes(searchLower) ||
+        r.phone.includes(searchLower)
+    );
+  }
 
   // Sort: isOverdue first (true before false), then totalOutstanding desc
   result.sort((a, b) => {
@@ -113,6 +124,12 @@ export async function listCreditCustomers(): Promise<CreditCustomerSummary[]> {
     if (!a.isOverdue && b.isOverdue) return 1;
     return b.totalOutstanding - a.totalOutstanding;
   });
+
+  if (options?.skip !== undefined && options?.take !== undefined) {
+    const total = result.length;
+    const paginatedResult = result.slice(options.skip, options.skip + options.take);
+    return { data: paginatedResult, total };
+  }
 
   return result;
 }

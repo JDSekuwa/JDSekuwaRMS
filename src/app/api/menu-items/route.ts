@@ -16,19 +16,58 @@ const createItemSchema = z.object({
  * GET /api/menu-items: returns all menu items with category and recipe lines.
  * Restricted to ADMIN and SUPER_ADMIN for recipe building.
  */
-export async function GET() {
+import { getPaginationParams, paginateResults } from "@/lib/pagination";
+
+export async function GET(request: Request) {
   try {
     await requireRole([Role.ADMIN, Role.SUPER_ADMIN]);
 
-    const items = await superuserPrisma.menuItem.findMany({
-      include: {
-        category: true,
-        recipe: {
-          include: {
-            lines: true
-          }
+    const { searchParams } = new URL(request.url);
+    const categoryId = searchParams.get("categoryId") || undefined;
+
+    const pageStr = searchParams.get("page");
+    const limitStr = searchParams.get("limit");
+
+    const whereClause: any = {};
+    if (categoryId && categoryId !== "ALL") {
+      whereClause.categoryId = categoryId;
+    }
+
+    const search = searchParams.get("search") || undefined;
+    if (search) {
+      whereClause.name = {
+        contains: search,
+        mode: "insensitive"
+      };
+    }
+
+    const includeClause = {
+      category: true,
+      recipe: {
+        include: {
+          lines: true
         }
-      },
+      }
+    };
+
+    if (pageStr || limitStr) {
+      const { skip, take, page, limit } = getPaginationParams(request);
+
+      const total = await superuserPrisma.menuItem.count({ where: whereClause });
+      const items = await superuserPrisma.menuItem.findMany({
+        where: whereClause,
+        include: includeClause,
+        orderBy: { name: "asc" },
+        skip,
+        take
+      });
+
+      return NextResponse.json(paginateResults(items, total, page, limit));
+    }
+
+    const items = await superuserPrisma.menuItem.findMany({
+      where: whereClause,
+      include: includeClause,
       orderBy: { name: "asc" }
     });
 

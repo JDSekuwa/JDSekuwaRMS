@@ -1,9 +1,9 @@
 import "dotenv/config";
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { prisma, superuserPrisma } from "../lib/prisma";
-import { checkIn, addRoomServiceCharge, checkOut, updateRoomStayDates } from "./rooms.service";
+import { checkIn, addRoomServiceCharge, checkOut, updateRoomStayDates, createRoom, updateRoom, deleteRoom } from "./rooms.service";
 import { RoomStatus, RoomStayStatus, PaymentType, Role } from "../generated/prisma/client";
-import { RoomConflictError } from "../lib/errors";
+import { RoomConflictError, ForbiddenError } from "../lib/errors";
 
 describe("Room Management Service Integration Tests (Stage B-4)", () => {
   let workerId: string;
@@ -175,6 +175,75 @@ describe("Room Management Service Integration Tests (Stage B-4)", () => {
     await superuserPrisma.rawItem.update({
       where: { id: rawSpiceId },
       data: { currentStock: spiceBefore!.currentStock }
+    });
+  });
+
+  describe("Room Administration CRUD Tests", () => {
+    let createdRoomId: string | null = null;
+
+    afterEach(async () => {
+      if (createdRoomId) {
+        await superuserPrisma.room.delete({
+          where: { id: createdRoomId }
+        }).catch(() => {});
+        createdRoomId = null;
+      }
+    });
+
+    it("should successfully create a room for ADMIN", async () => {
+      const room = await createRoom(adminId, "Room test-99", 3500.00, "http://example.com/room.jpg");
+      expect(room).toBeDefined();
+      expect(room.name).toBe("Room test-99");
+      expect(Number(room.nightlyRate)).toBe(3500.00);
+      expect(room.imageUrl).toBe("http://example.com/room.jpg");
+      createdRoomId = room.id;
+    });
+
+    it("should block WORKER role from creating a room", async () => {
+      await expect(
+        createRoom(workerId, "Attacker Room", 1000.00)
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("should successfully update an existing room name, rate, and image", async () => {
+      const room = await createRoom(adminId, "Room test-100", 3500.00);
+      createdRoomId = room.id;
+
+      const updated = await updateRoom(adminId, room.id, "Room test-100-updated", 4000.00, "http://example.com/new-room.jpg");
+      expect(updated.name).toBe("Room test-100-updated");
+      expect(Number(updated.nightlyRate)).toBe(4000.00);
+      expect(updated.imageUrl).toBe("http://example.com/new-room.jpg");
+    });
+
+    it("should block WORKER role from updating room details", async () => {
+      const room = await createRoom(adminId, "Room test-101-gated", 3500.00);
+      createdRoomId = room.id;
+
+      await expect(
+        updateRoom(workerId, room.id, "Room hacked", 100.00)
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("should successfully delete a vacant room", async () => {
+      const room = await createRoom(adminId, "Room test-102-delete", 3500.00);
+      const res = await deleteRoom(adminId, room.id);
+      expect(res.success).toBe(true);
+      expect(res.id).toBe(room.id);
+    });
+
+    it("should block deleting an occupied room", async () => {
+      const room = await createRoom(adminId, "Room test-103-occupied-block", 3500.00);
+      createdRoomId = room.id;
+
+      // Set status to OCCUPIED
+      await superuserPrisma.room.update({
+        where: { id: room.id },
+        data: { status: RoomStatus.OCCUPIED }
+      });
+
+      await expect(
+        deleteRoom(adminId, room.id)
+      ).rejects.toThrow(/cannot delete an occupied room/i);
     });
   });
 });

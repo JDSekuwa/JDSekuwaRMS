@@ -1,28 +1,29 @@
 import { requireRole } from "@/services/auth.service";
 import { Role } from "@/generated/prisma/client";
-import { deleteStaffUser, updateStaffUser } from "@/services/users.service";
+import { updateRoom, deleteRoom } from "@/services/rooms.service";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-const updateStaffSchema = z.object({
-  name: z.string().min(1, "Name is required"),
+const updateRoomSchema = z.object({
+  name: z.string().min(1, "Room name is required"),
+  nightlyRate: z.number().positive("Nightly rate must be positive"),
   imageUrl: z.string().nullable().optional()
 });
 
 /**
- * PUT /api/users/[id]: update staff user name/image.
- * Strictly gated to SUPER_ADMIN.
+ * PUT /api/rooms/[id] — Updates a room's details.
+ * Restricted to ADMIN and SUPER_ADMIN.
  */
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const caller = await requireRole([Role.SUPER_ADMIN]);
-    const { id: targetUserId } = await params;
+    const caller = await requireRole([Role.ADMIN, Role.SUPER_ADMIN]);
+    const { id } = await params;
     const body = await request.json();
 
-    const result = updateStaffSchema.safeParse(body);
+    const result = updateRoomSchema.safeParse(body);
     if (!result.success) {
       return NextResponse.json(
         { error: "Invalid input", details: result.error.format() },
@@ -30,9 +31,9 @@ export async function PUT(
       );
     }
 
-    const { name, imageUrl } = result.data;
-    const res = await updateStaffUser(caller.id, targetUserId, name, imageUrl || null);
-    return NextResponse.json(res);
+    const { name, nightlyRate, imageUrl } = result.data;
+    const room = await updateRoom(caller.id, id, name, nightlyRate, imageUrl);
+    return NextResponse.json(room);
   } catch (error: any) {
     const status = error.statusCode || 500;
     return NextResponse.json(
@@ -43,19 +44,19 @@ export async function PUT(
 }
 
 /**
- * DELETE /api/users/[id]: delete a staff user.
- * Strictly gated to SUPER_ADMIN.
+ * DELETE /api/rooms/[id] — Deletes a room.
+ * Restricted to ADMIN and SUPER_ADMIN.
  */
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const caller = await requireRole([Role.SUPER_ADMIN]);
-    const { id: targetUserId } = await params;
+    const caller = await requireRole([Role.ADMIN, Role.SUPER_ADMIN]);
+    const { id } = await params;
 
-    const res = await deleteStaffUser(caller.id, targetUserId);
-    return NextResponse.json(res);
+    const result = await deleteRoom(caller.id, id);
+    return NextResponse.json(result);
   } catch (error: any) {
     const status = error.statusCode || 500;
     return NextResponse.json(

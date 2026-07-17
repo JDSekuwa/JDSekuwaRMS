@@ -39,6 +39,50 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
 ];
 
+interface AvatarProps {
+  name: string;
+  imageUrl?: string | null;
+  className?: string;
+}
+
+function UserAvatar({ name, imageUrl, className }: AvatarProps) {
+  const initial = name.trim().charAt(0).toUpperCase() || "S";
+  const colors = [
+    "bg-red-500 text-white",
+    "bg-blue-500 text-white",
+    "bg-green-500 text-white",
+    "bg-yellow-500 text-ink",
+    "bg-purple-500 text-white",
+    "bg-pink-500 text-white",
+    "bg-indigo-500 text-white",
+    "bg-teal-500 text-white"
+  ];
+  const charCodeSum = name.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const colorClass = colors[charCodeSum % colors.length];
+
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt={name}
+        className={cn("rounded-full object-cover border border-border shadow-xs", className)}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "rounded-full flex items-center justify-center font-extrabold select-none shadow-xs border border-border/25",
+        colorClass,
+        className
+      )}
+    >
+      {initial}
+    </div>
+  );
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, role, loading, signOut } = useAuth();
   const pathname = usePathname();
@@ -91,6 +135,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         return "Guest";
     }
   };
+
+  const userName = user?.user_metadata?.name || user?.email?.split("@")[0] || "Staff";
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-surface-sunken">
@@ -153,16 +199,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Sidebar Footer */}
         <div className="border-t border-border p-3 space-y-2">
           {sidebarExpanded && user && (
-            <div className="px-3 py-2 overflow-hidden">
-              <p className="text-xs font-semibold text-ink truncate">{user.email}</p>
-              <span
-                className={cn(
-                  "inline-block mt-1 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border",
-                  getRoleBadgeClasses(role)
-                )}
-              >
-                {getRoleLabel(role)}
-              </span>
+            <div className="flex items-center gap-2.5 px-3 py-2 overflow-hidden">
+              <UserAvatar
+                name={userName}
+                imageUrl={user.user_metadata?.imageUrl}
+                className="h-8.5 w-8.5 shrink-0"
+              />
+              <div className="min-w-0">
+                <span
+                  className={cn(
+                    "inline-block text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border",
+                    getRoleBadgeClasses(role)
+                  )}
+                >
+                  {getRoleLabel(role)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {!sidebarExpanded && user && (
+            <div className="flex justify-center py-1">
+              <UserAvatar
+                name={userName}
+                imageUrl={user.user_metadata?.imageUrl}
+                className="h-8 w-8"
+              />
             </div>
           )}
           
@@ -218,15 +280,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-danger ring-2 ring-white" />
             </button>
 
-            {/* Role Badge (Topbar only on smaller screens / mobile layout) */}
-            <span
-              className={cn(
-                "px-2.5 py-0.5 rounded-full border text-xs font-bold tracking-wide select-none",
-                getRoleBadgeClasses(role)
-              )}
-            >
-              {getRoleLabel(role)}
-            </span>
+            {/* User Profile Info & Avatar */}
+            {user && (
+              <div className="flex items-center gap-3 border-l border-border pl-4">
+                <span
+                  className={cn(
+                    "inline-block text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border tracking-wide select-none",
+                    getRoleBadgeClasses(role)
+                  )}
+                >
+                  {getRoleLabel(role)}
+                </span>
+                <UserAvatar
+                  name={userName}
+                  imageUrl={user.user_metadata?.imageUrl}
+                  className="h-9 w-9 transition-transform hover:scale-105 duration-200 cursor-pointer"
+                />
+              </div>
+            )}
           </div>
         </header>
 

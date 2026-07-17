@@ -22,7 +22,9 @@ import {
   CreditCard,
   Sparkles,
   Clock,
-  Star
+  Star,
+  Trash2,
+  XCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +57,7 @@ interface Room {
   status: "VACANT" | "OCCUPIED";
   nightlyRate: number | null;
   activeStay: ActiveStay | null;
+  imageUrl?: string | null;
 }
 
 interface MenuItem {
@@ -112,6 +115,45 @@ export default function RoomsPage() {
   // Form states — Checkout
   const [paymentType, setPaymentType] = useState<"CASH" | "CARD" | "CREDIT">("CASH");
   const [checkOutError, setCheckOutError] = useState<string | null>(null);
+
+  // Manage Rooms states
+  const [manageRoomsOpen, setManageRoomsOpen] = useState(false);
+  const [newRoomName, setNewRoomName] = useState("");
+  const [newRoomRate, setNewRoomRate] = useState<number>(0);
+  const [newRoomImageUrl, setNewRoomImageUrl] = useState("");
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  const [editingRoomName, setEditingRoomName] = useState("");
+  const [editingRoomRate, setEditingRoomRate] = useState<number>(0);
+  const [editingRoomImageUrl, setEditingRoomImageUrl] = useState("");
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [roomsError, setRoomsError] = useState<string | null>(null);
+
+  const handleImageUpload = async (file: File, type: "new" | "edit") => {
+    setUploadingImage(true);
+    setRoomsError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Image upload failed");
+      }
+      const data = await res.json();
+      if (type === "new") {
+        setNewRoomImageUrl(data.url);
+      } else {
+        setEditingRoomImageUrl(data.url);
+      }
+    } catch (err: any) {
+      setRoomsError(err.message || "Failed to upload image.");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   /* ── QUERIES ──────────────────────────────────────────────────── */
 
@@ -199,6 +241,72 @@ export default function RoomsPage() {
     onError: (err: any) => setCheckOutError(err.message || "Checkout failed")
   });
 
+  // Create, Update, Delete Room mutations
+  const createRoomMutation = useMutation({
+    mutationFn: async (payload: { name: string; nightlyRate: number; imageUrl?: string | null }) => {
+      const res = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to create room");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setNewRoomName("");
+      setNewRoomRate(0);
+      setNewRoomImageUrl("");
+      setRoomsError(null);
+      queryClient.invalidateQueries({ queryKey: ["rooms"] });
+    },
+    onError: (err: any) => setRoomsError(err.message)
+  });
+
+  const updateRoomMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: { name: string; nightlyRate: number; imageUrl?: string | null } }) => {
+      const res = await fetch(`/api/rooms/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to update room");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setEditingRoomId(null);
+      setEditingRoomName("");
+      setEditingRoomRate(0);
+      setEditingRoomImageUrl("");
+      setRoomsError(null);
+      queryClient.invalidateQueries({ queryKey: ["rooms"] });
+    },
+    onError: (err: any) => setRoomsError(err.message)
+  });
+
+  const deleteRoomMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/rooms/${id}`, {
+        method: "DELETE"
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to delete room");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setRoomsError(null);
+      queryClient.invalidateQueries({ queryKey: ["rooms"] });
+    },
+    onError: (err: any) => setRoomsError(err.message)
+  });
+
   /* ── HANDLERS ─────────────────────────────────────────────────── */
 
   const handleCheckInSubmit = (e: React.FormEvent) => {
@@ -244,6 +352,17 @@ export default function RoomsPage() {
       <PageHeader
         title="Rooms & Lodging Overview"
         description="Monitor room stay statuses, check guests in, post service charges, and process checkout billings."
+        actions={
+          isAdmin ? (
+            <button
+              onClick={() => setManageRoomsOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover transition-all duration-200 select-none active:scale-[0.98]"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Manage Rooms</span>
+            </button>
+          ) : undefined
+        }
       />
 
       {/* STAT TILES */}
@@ -324,7 +443,7 @@ export default function RoomsPage() {
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 animate-fade-in-up [animation-delay:100ms]">
           {rooms.map((room, index) => {
             const isOccupied = room.status === "OCCUPIED";
-            const bgImage = HOTEL_IMAGES[index % HOTEL_IMAGES.length];
+            const bgImage = room.imageUrl || HOTEL_IMAGES[index % HOTEL_IMAGES.length];
             const stay = room.activeStay;
 
             return (
@@ -469,6 +588,256 @@ export default function RoomsPage() {
           })}
         </div>
       )}
+
+      {/* MODAL FOR ROOMS MANAGEMENT */}
+      <Modal
+        isOpen={manageRoomsOpen}
+        onClose={() => {
+          setManageRoomsOpen(false);
+          setEditingRoomId(null);
+          setNewRoomName("");
+          setNewRoomRate(0);
+          setNewRoomImageUrl("");
+          setRoomsError(null);
+        }}
+        title="Manage Lodging Rooms"
+        className="max-w-3xl"
+        footer={
+          <button
+            onClick={() => {
+              setManageRoomsOpen(false);
+              setEditingRoomId(null);
+              setNewRoomName("");
+              setNewRoomRate(0);
+              setNewRoomImageUrl("");
+              setRoomsError(null);
+            }}
+            className="px-4 py-2 bg-surface-sunken hover:bg-border text-ink text-xs font-semibold rounded-control transition-colors"
+          >
+            Close Panel
+          </button>
+        }
+      >
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* LEFT SIDE: ADD/EDIT FORM */}
+            <div className="space-y-4 border-r border-border pr-0 md:pr-6">
+              <h4 className="text-xs font-black text-ink-muted uppercase tracking-wider">
+                {editingRoomId ? "Edit Room Details" : "Add New Room"}
+              </h4>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                    Room Designation / Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editingRoomId ? editingRoomName : newRoomName}
+                    onChange={(e) => {
+                      if (editingRoomId) setEditingRoomName(e.target.value);
+                      else setNewRoomName(e.target.value);
+                    }}
+                    placeholder="e.g. Room 104, Deluxe Suite B"
+                    className="w-full rounded-control border border-border px-3 py-2 text-xs text-ink outline-none focus:border-primary bg-card"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                    Nightly Rate (NPR)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editingRoomId ? editingRoomRate || "" : newRoomRate || ""}
+                    onChange={(e) => {
+                      const rate = parseFloat(e.target.value) || 0;
+                      if (editingRoomId) setEditingRoomRate(rate);
+                      else setNewRoomRate(rate);
+                    }}
+                    placeholder="e.g. 2500"
+                    className="w-full rounded-control border border-border px-3 py-2 text-xs text-ink outline-none focus:border-primary bg-card"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                    Room Image (Optional)
+                  </label>
+                  <div className="space-y-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImageUpload(file, editingRoomId ? "edit" : "new");
+                      }}
+                      className="w-full text-xs text-ink-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-control file:border-0 file:text-[11px] file:font-black file:bg-primary/10 file:text-primary hover:file:bg-primary/20 file:cursor-pointer"
+                    />
+                    {uploadingImage && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-primary font-semibold">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span>Uploading image to server...</span>
+                      </div>
+                    )}
+                    {(editingRoomId ? editingRoomImageUrl : newRoomImageUrl) && (
+                      <div className="relative h-20 w-32 rounded-control overflow-hidden border border-border mt-1.5">
+                        <img
+                          src={editingRoomId ? editingRoomImageUrl : newRoomImageUrl}
+                          alt="Room preview"
+                          className="h-full w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editingRoomId) setEditingRoomImageUrl("");
+                            else setNewRoomImageUrl("");
+                          }}
+                          className="absolute top-1 right-1 p-0.5 bg-black/70 text-white hover:text-danger rounded-full"
+                          title="Remove image"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  {editingRoomId ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (!editingRoomName || editingRoomRate <= 0) return;
+                          updateRoomMutation.mutate({
+                            id: editingRoomId,
+                            payload: { name: editingRoomName, nightlyRate: editingRoomRate, imageUrl: editingRoomImageUrl || null }
+                          });
+                        }}
+                        disabled={updateRoomMutation.isPending || uploadingImage}
+                        className="flex-1 py-2 bg-primary text-white font-bold rounded-control hover:bg-primary-hover transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                      >
+                        {updateRoomMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                        Save Edits
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingRoomId(null);
+                          setEditingRoomName("");
+                          setEditingRoomRate(0);
+                          setEditingRoomImageUrl("");
+                        }}
+                        className="px-3 py-2 bg-surface-sunken hover:bg-border text-ink font-semibold rounded-control transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (!newRoomName || newRoomRate <= 0) return;
+                        createRoomMutation.mutate({
+                          name: newRoomName,
+                          nightlyRate: newRoomRate,
+                          imageUrl: newRoomImageUrl || null
+                        });
+                      }}
+                      disabled={createRoomMutation.isPending || uploadingImage}
+                      className="w-full py-2 bg-primary text-white font-bold rounded-control hover:bg-primary-hover transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                    >
+                      {createRoomMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                      Add Room
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT SIDE: LIST OF ROOMS */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-black text-ink-muted uppercase tracking-wider">
+                Existing Rooms ({rooms.length})
+              </h4>
+              <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 scrollbar-thin">
+                {rooms.map((r) => {
+                  const isDeletable = r.status === "VACANT" && !r.activeStay;
+
+                  return (
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between p-2.5 rounded-control border border-border bg-surface-sunken/45 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        {r.imageUrl ? (
+                          <img
+                            src={r.imageUrl}
+                            alt={r.name}
+                            className="h-8 w-12 rounded-control object-cover border border-border"
+                          />
+                        ) : (
+                          <div className="h-8 w-12 rounded-control bg-border/50 flex items-center justify-center text-ink-muted">
+                            <Bed className="h-3.5 w-3.5" />
+                          </div>
+                        )}
+                        <div>
+                          <span className="font-extrabold text-ink">{r.name}</span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              r.status === "OCCUPIED" && "bg-info",
+                              r.status === "VACANT" && "bg-success"
+                            )} />
+                            <span className="text-[9px] font-bold text-ink-muted uppercase tracking-wide">
+                              {r.status}
+                            </span>
+                            <span className="text-[9px] font-bold text-primary font-mono ml-2">
+                              Rs. {Number(r.nightlyRate).toFixed(0)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            setEditingRoomId(r.id);
+                            setEditingRoomName(r.name);
+                            setEditingRoomRate(Number(r.nightlyRate));
+                            setEditingRoomImageUrl(r.imageUrl || "");
+                          }}
+                          className="p-1 text-ink-muted hover:text-primary transition-colors hover:bg-border rounded-control"
+                          title="Edit Room"
+                        >
+                          <Plus className="h-3.5 w-3.5 rotate-45" />
+                        </button>
+                        <button
+                          disabled={!isDeletable || deleteRoomMutation.isPending}
+                          onClick={() => {
+                            if (confirm(`Are you sure you want to delete room '${r.name}'?`)) {
+                              deleteRoomMutation.mutate(r.id);
+                            }
+                          }}
+                          className="p-1 text-ink-muted hover:text-danger disabled:opacity-30 transition-colors hover:bg-border rounded-control"
+                          title={isDeletable ? "Delete Room" : "Cannot delete occupied/stay room"}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {roomsError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-3 text-xs text-danger">
+              {roomsError}
+            </div>
+          )}
+        </div>
+      </Modal>
 
       {/* ══════════════════════════════════════════════════════════════
           MODAL 1: CHECK IN GUEST

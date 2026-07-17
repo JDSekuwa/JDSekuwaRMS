@@ -11,16 +11,24 @@ const purchaseSchema = z.object({
   supplierName: z.string().optional().nullable(),
 });
 
+import { getPaginationParams, paginateResults } from "@/lib/pagination";
+
 export async function GET(request: Request) {
   try {
     const profile = await requireRole([Role.ADMIN, Role.SUPER_ADMIN]);
 
+    const { skip, take, search, page, limit } = getPaginationParams(request);
     const { searchParams } = new URL(request.url);
     const rawItemId = searchParams.get("rawItemId") || undefined;
     const startDateStr = searchParams.get("startDate");
     const endDateStr = searchParams.get("endDate");
 
-    const filters: PurchaseFilters = { rawItemId };
+    const filters: PurchaseFilters & { skip?: number; take?: number; search?: string } = {
+      rawItemId,
+      skip,
+      take,
+      search
+    };
 
     if (startDateStr && endDateStr) {
       filters.dateRange = {
@@ -29,8 +37,12 @@ export async function GET(request: Request) {
       };
     }
 
-    const purchases = await listPurchases(filters, profile.id);
-    return NextResponse.json(purchases);
+    const result = await listPurchases(filters, profile.id);
+
+    if (result && typeof result === "object" && "purchases" in result) {
+      return NextResponse.json(paginateResults(result.purchases, result.total, page, limit));
+    }
+    return NextResponse.json(result);
   } catch (error: any) {
     const status = error.statusCode || 500;
     return NextResponse.json(

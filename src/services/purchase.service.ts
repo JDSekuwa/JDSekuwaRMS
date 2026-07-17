@@ -91,9 +91,9 @@ export async function recordPurchase(
  * Gated to Admin/Super Admin only.
  */
 export async function listPurchases(
-  filters: PurchaseFilters,
+  filters: PurchaseFilters & { skip?: number; take?: number; search?: string },
   userId: string
-): Promise<any[]> {
+): Promise<any[] | { purchases: any[]; total: number }> {
   const profile = await superuserPrisma.profile.findUnique({
     where: { id: userId }
   });
@@ -118,21 +118,46 @@ export async function listPurchases(
     };
   }
 
-  return await prisma.purchase.findMany({
-    where: whereClause,
-    include: {
-      rawItem: {
-        select: {
-          name: true,
-          unit: true
-        }
-      },
-      recordedBy: {
-        select: {
-          role: true
-        }
+  if (filters.search) {
+    whereClause.rawItem = {
+      name: {
+        contains: filters.search,
+        mode: "insensitive"
+      }
+    };
+  }
+
+  const includeClause = {
+    rawItem: {
+      select: {
+        name: true,
+        unit: true
       }
     },
+    recordedBy: {
+      select: {
+        role: true
+      }
+    }
+  };
+
+  if (filters.skip !== undefined && filters.take !== undefined) {
+    const total = await prisma.purchase.count({ where: whereClause });
+    const purchases = await prisma.purchase.findMany({
+      where: whereClause,
+      include: includeClause,
+      orderBy: {
+        purchasedAt: "desc"
+      },
+      skip: filters.skip,
+      take: filters.take
+    });
+    return { purchases, total };
+  }
+
+  return await prisma.purchase.findMany({
+    where: whereClause,
+    include: includeClause,
     orderBy: {
       purchasedAt: "desc"
     }

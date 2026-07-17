@@ -7,18 +7,28 @@ import { z } from "zod";
 const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.nativeEnum(Role)
+  role: z.nativeEnum(Role),
+  name: z.string().min(1, "Name is required"),
+  imageUrl: z.string().nullable().optional()
 });
 
 /**
  * GET /api/users: list all staff users.
  * Strictly gated to SUPER_ADMIN.
  */
-export async function GET() {
+import { getPaginationParams, paginateResults } from "@/lib/pagination";
+
+export async function GET(request: Request) {
   try {
     const caller = await requireRole([Role.SUPER_ADMIN]);
-    const users = await listStaffUsers(caller.id);
-    return NextResponse.json(users);
+
+    const { skip, take, search, page, limit } = getPaginationParams(request);
+    const result = await listStaffUsers(caller.id, { skip, take, search });
+
+    if (result && typeof result === "object" && "data" in result) {
+      return NextResponse.json(paginateResults(result.data, result.total, page, limit));
+    }
+    return NextResponse.json(result);
   } catch (error: any) {
     const status = error.statusCode || 500;
     return NextResponse.json(
@@ -45,8 +55,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const { email, password, role } = result.data;
-    const user = await createStaffUser(caller.id, email, password, role);
+    const { email, password, role, name, imageUrl } = result.data;
+    const user = await createStaffUser(caller.id, email, password, role, name, imageUrl || null);
     return NextResponse.json(user);
   } catch (error: any) {
     const status = error.statusCode || 500;

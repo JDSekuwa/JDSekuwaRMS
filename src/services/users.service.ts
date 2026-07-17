@@ -20,7 +20,10 @@ async function requireSuperAdmin(callerUserId: string) {
 /**
  * Returns joined PostgreSQL profiles with Supabase Auth emails and metadata.
  */
-export async function listStaffUsers(callerUserId: string): Promise<any[]> {
+export async function listStaffUsers(
+  callerUserId: string,
+  options?: { skip?: number; take?: number; search?: string }
+): Promise<any[] | { data: any[]; total: number }> {
   await requireSuperAdmin(callerUserId);
   const supabase = createAdminClient();
 
@@ -36,15 +39,32 @@ export async function listStaffUsers(callerUserId: string): Promise<any[]> {
   }
 
   // 3. Join the data on user ID (UUID)
-  const mapped = dbProfiles.map(profile => {
+  let mapped = dbProfiles.map(profile => {
     const authUser = users.find(u => u.id === profile.id);
     return {
       id: profile.id,
       email: authUser?.email || "unknown@example.com",
       role: profile.role,
+      name: authUser?.user_metadata?.name || authUser?.email?.split("@")[0] || "Staff",
+      imageUrl: authUser?.user_metadata?.imageUrl || null,
       createdAt: authUser?.created_at || profile.createdAt.toISOString()
     };
   });
+
+  if (options?.search) {
+    const searchLower = options.search.toLowerCase();
+    mapped = mapped.filter(
+      (m) =>
+        m.name.toLowerCase().includes(searchLower) ||
+        m.email.toLowerCase().includes(searchLower)
+    );
+  }
+
+  if (options?.skip !== undefined && options?.take !== undefined) {
+    const total = mapped.length;
+    const paginatedResult = mapped.slice(options.skip, options.skip + options.take);
+    return { data: paginatedResult, total };
+  }
 
   return mapped;
 }
@@ -56,10 +76,15 @@ export async function createStaffUser(
   callerUserId: string,
   email: string,
   password: string,
-  role: Role
+  role: Role,
+  name?: string,
+  imageUrl?: string | null
 ): Promise<any> {
   await requireSuperAdmin(callerUserId);
   const supabase = createAdminClient();
+
+  const finalName = name || email.split("@")[0] || "Staff";
+  const finalImageUrl = imageUrl || null;
 
   // 1. Create Supabase Auth credentials using the Admin API
   const { data: { user }, error } = await supabase.auth.admin.createUser({
@@ -67,7 +92,7 @@ export async function createStaffUser(
     password,
     email_confirm: true,
     app_metadata: { role },
-    user_metadata: { role }
+    user_metadata: { role, name: finalName, imageUrl: finalImageUrl }
   });
 
   if (error || !user) {
@@ -88,13 +113,15 @@ export async function createStaffUser(
       "CREATE_STAFF_USER",
       "Profile",
       profile.id,
-      { email, role }
+      { email, role, name: finalName, imageUrl: finalImageUrl }
     );
 
     return {
       id: profile.id,
       email,
       role: profile.role,
+      name: finalName,
+      imageUrl: finalImageUrl,
       createdAt: user.created_at
     };
   } catch (dbErr: any) {
@@ -209,4 +236,39 @@ export async function deleteStaffUser(
   );
 
   return { success: true, id: profile.id };
+}
+
+/**
+ * Updates a staff user's name and image in Supabase Auth user metadata.
+ */
+export async function updateStaffUser(
+  callerUserId: string,
+  targetUserId: string,
+  name: string,
+  imageUrl: string | null
+): Promise<any> {
+  await requireSuperAdmin(callerUserId);
+  const supabase = createAdminClient();
+
+  // 1. Update user_metadata in Supabase Auth
+  const { data: { user }, error } = await supabase.auth.admin.updateUserById(targetUserId, {
+    user_metadata: { name, imageUrl }
+  });
+  if (error || !user) {
+    throw new Error(`Failed to update staff credentials: ${error?.message || "Unknown error"}`);
+  }
+
+  await logAction(
+    callerUserId,
+    "UPDATE_STAFF_USER",
+    "Profile",
+    targetUserId,
+    { name, imageUrl }
+  );
+
+  return {
+    id: targetUserId,
+    name: user.user_metadata?.name || name,
+    imageUrl: user.user_metadata?.imageUrl || imageUrl
+  };
 }

@@ -20,14 +20,35 @@ export interface InventoryItem {
  * If the role is WORKER, it queries raw_items_worker_view (which excludes cost_price).
  * If the role is ADMIN or SUPER_ADMIN, it queries the base table using superuserPrisma.
  */
-export async function getInventoryList(role: Role): Promise<InventoryItem[]> {
+export async function getInventoryList(
+  role: Role,
+  options?: { skip?: number; take?: number; search?: string }
+): Promise<{ items: InventoryItem[]; total: number }> {
   if (role === Role.WORKER) {
-    // Workers use the restricted view. View is queried under standard app_user connection.
-    const items: any[] = await prisma.$queryRawUnsafe(
-      `SELECT id, name, unit, current_stock, min_threshold, created_at, updated_at FROM public.raw_items_worker_view`
-    );
+    let query = `SELECT id, name, unit, current_stock, min_threshold, created_at, updated_at FROM public.raw_items_worker_view`;
+    let countQuery = `SELECT COUNT(*)::integer FROM public.raw_items_worker_view`;
+    const params: any[] = [];
+    const countParams: any[] = [];
 
-    return items.map((item) => ({
+    if (options?.search) {
+      query += ` WHERE name ILIKE $1`;
+      countQuery += ` WHERE name ILIKE $1`;
+      params.push(`%${options.search}%`);
+      countParams.push(`%${options.search}%`);
+    }
+
+    query += ` ORDER BY name ASC`;
+
+    if (options?.skip !== undefined && options?.take !== undefined) {
+      params.push(options.take, options.skip);
+      query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    }
+
+    const items: any[] = await prisma.$queryRawUnsafe(query, ...params);
+    const countRes: any[] = await prisma.$queryRawUnsafe(countQuery, ...countParams);
+    const total = Number(countRes[0]?.count || 0);
+
+    const data = items.map((item) => ({
       id: item.id,
       name: item.name,
       unit: item.unit,
@@ -37,11 +58,28 @@ export async function getInventoryList(role: Role): Promise<InventoryItem[]> {
       createdAt: new Date(item.created_at),
       updatedAt: new Date(item.updated_at),
     }));
+
+    return { items: data, total };
   }
 
   // Admins/Super Admins read base table using the superuser connection (to read cost_price)
-  const items = await superuserPrisma.rawItem.findMany();
-  return items.map((item) => ({
+  const whereClause: any = {};
+  if (options?.search) {
+    whereClause.name = {
+      contains: options.search,
+      mode: "insensitive"
+    };
+  }
+
+  const total = await superuserPrisma.rawItem.count({ where: whereClause });
+  const items = await superuserPrisma.rawItem.findMany({
+    where: whereClause,
+    orderBy: { name: "asc" },
+    skip: options?.skip,
+    take: options?.take
+  });
+
+  const data = items.map((item) => ({
     id: item.id,
     name: item.name,
     unit: item.unit,
@@ -51,6 +89,8 @@ export async function getInventoryList(role: Role): Promise<InventoryItem[]> {
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }));
+
+  return { items: data, total };
 }
 
 /**

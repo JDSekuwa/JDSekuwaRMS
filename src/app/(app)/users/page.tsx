@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Modal } from "@/components/ui/modal-sheet";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import {
   Plus,
   Key,
@@ -26,6 +27,46 @@ interface UserProfile {
   email: string;
   role: "SUPER_ADMIN" | "ADMIN" | "WORKER";
   createdAt: string;
+  name: string;
+  imageUrl?: string | null;
+}
+
+function UserAvatar({ name, imageUrl, className }: { name: string; imageUrl?: string | null; className?: string }) {
+  const initial = name.trim().charAt(0).toUpperCase() || "S";
+  const colors = [
+    "bg-red-500 text-white",
+    "bg-blue-500 text-white",
+    "bg-green-500 text-white",
+    "bg-yellow-500 text-ink",
+    "bg-purple-500 text-white",
+    "bg-pink-500 text-white",
+    "bg-indigo-500 text-white",
+    "bg-teal-500 text-white"
+  ];
+  const charCodeSum = name.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const colorClass = colors[charCodeSum % colors.length];
+
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt={name}
+        className={cn("rounded-full object-cover border border-border shadow-xs", className)}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "rounded-full flex items-center justify-center font-extrabold select-none shadow-xs border border-border/25",
+        colorClass,
+        className
+      )}
+    >
+      {initial}
+    </div>
+  );
 }
 
 export default function UsersPage() {
@@ -36,6 +77,7 @@ export default function UsersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   // Selected Row tracking
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
@@ -43,6 +85,11 @@ export default function UsersPage() {
   // Forms Fields
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editImageUrl, setEditImageUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [roleSelection, setRoleSelection] = useState<"SUPER_ADMIN" | "ADMIN" | "WORKER">("WORKER");
   const [resetPasswordVal, setResetPasswordVal] = useState("");
 
@@ -51,17 +98,51 @@ export default function UsersPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [rowUpdatingId, setRowUpdatingId] = useState<string | null>(null);
 
+  const handleImageUpload = async (file: File, mode: "new" | "edit") => {
+    setUploading(true);
+    setApiError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Upload failed");
+      }
+      const data = await res.json();
+      if (mode === "new") {
+        setImageUrl(data.url);
+      } else {
+        setEditImageUrl(data.url);
+      }
+    } catch (err: any) {
+      setApiError(err.message || "Failed to upload image.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   /* ── 1. QUERY STAFF MEMBERS ─────────────────────────────────────── */
 
-  const { data: users = [], isLoading: isUsersLoading, refetch } = useQuery<UserProfile[]>({
-    queryKey: ["users"],
+  // Pagination states
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const { data: paginatedData, isLoading: isUsersLoading, refetch } = useQuery<{ data: UserProfile[]; pagination: any }>({
+    queryKey: ["users", page, limit, searchQuery],
     queryFn: async () => {
-      const res = await fetch("/api/users");
-      if (!res.ok) throw new Error("Failed to load user directory");
+      const res = await fetch(`/api/users?page=${page}&limit=${limit}&search=${encodeURIComponent(searchQuery)}`);
+      if (!res.ok) throw new Error("Failed to load staff list.");
       return res.json();
     },
     enabled: currentUserRole === "SUPER_ADMIN"
   });
+  const users = paginatedData?.data || [];
+  const pagination = paginatedData?.pagination;
 
   /* ── 2. MUTATIONS ───────────────────────────────────────────────── */
 
@@ -83,9 +164,39 @@ export default function UsersPage() {
       setCreateOpen(false);
       setEmail("");
       setPassword("");
+      setName("");
+      setImageUrl("");
       setRoleSelection("WORKER");
       setApiError(null);
       setSuccessMsg(`Account '${data.email}' has been successfully provisioned.`);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      setTimeout(() => setSuccessMsg(null), 5000);
+    },
+    onError: (err: any) => {
+      setApiError(err.message);
+    }
+  });
+
+  // Update User Details (Name / Image)
+  const updateDetailsMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: { name: string; imageUrl?: string | null } }) => {
+      const res = await fetch(`/api/users/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to update profile.");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setEditOpen(false);
+      setEditName("");
+      setEditImageUrl("");
+      setApiError(null);
+      setSuccessMsg("Staff profile updated successfully.");
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setTimeout(() => setSuccessMsg(null), 5000);
     },
@@ -202,17 +313,29 @@ export default function UsersPage() {
 
   const columns = [
     {
-      key: "email",
-      label: "Email Address",
-      render: (val: string, row: UserProfile) => (
-        <div className="flex items-center gap-2">
-          <Mail className="h-4 w-4 text-ink-muted/50" />
-          <span className="font-extrabold text-ink">{val}</span>
-          {currentUser?.id === row.id && (
-            <span className="text-[9px] bg-primary/10 text-primary font-black px-1.5 py-0.5 rounded-full select-none">
-              You
-            </span>
-          )}
+      key: "avatar",
+      label: "Avatar",
+      render: (_: any, row: UserProfile) => (
+        <UserAvatar name={row.name} imageUrl={row.imageUrl} className="h-8.5 w-8.5" />
+      )
+    },
+    {
+      key: "name",
+      label: "Staff Member",
+      render: (_: any, row: UserProfile) => (
+        <div>
+          <div className="font-extrabold text-ink text-sm flex items-center gap-1.5">
+            <span>{row.name}</span>
+            {currentUser?.id === row.id && (
+              <span className="text-[9px] bg-primary/10 text-primary font-black px-1.5 py-0.5 rounded-full select-none">
+                You
+              </span>
+            )}
+          </div>
+          <div className="text-[10px] text-ink-muted/80 flex items-center gap-1 mt-0.5">
+            <Mail className="h-3 w-3 shrink-0" />
+            <span>{row.email}</span>
+          </div>
         </div>
       )
     },
@@ -269,9 +392,23 @@ export default function UsersPage() {
             <button
               onClick={() => {
                 setSelectedUser(row);
-                setResetOpen(true);
+                setEditName(row.name);
+                setEditImageUrl(row.imageUrl || "");
+                setEditOpen(true);
               }}
               className="flex items-center gap-1 text-[11px] text-primary hover:text-primary-hover font-bold"
+              title="Edit Profile"
+            >
+              <Shield className="h-3.5 w-3.5" />
+              <span>Edit Profile</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setSelectedUser(row);
+                setResetOpen(true);
+              }}
+              className="flex items-center gap-1 text-[11px] text-ink-muted hover:text-ink font-bold"
               title="Override Password"
             >
               <Key className="h-3.5 w-3.5" />
@@ -339,14 +476,56 @@ export default function UsersPage() {
         </div>
       )}
 
+      {/* SEARCH AND LIMIT FILTER BAR */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-card border border-border bg-card shadow-xs">
+        <div className="relative w-full sm:w-72">
+          <input
+            type="text"
+            placeholder="Search staff members by name or email..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(1);
+            }}
+            className="w-full rounded-control border border-border bg-surface-sunken/45 pl-3 pr-4 py-1.5 text-xs text-ink placeholder-ink-muted/65 outline-none focus:border-primary focus:bg-card transition-all"
+          />
+        </div>
+        <div className="flex items-center gap-2 self-end sm:self-auto select-none">
+          <span className="text-xs text-ink-muted">Show:</span>
+          <select
+            value={limit}
+            onChange={(e) => {
+              setLimit(parseInt(e.target.value, 10));
+              setPage(1);
+            }}
+            className="rounded-control border border-border bg-card text-ink font-semibold px-2.5 py-1 text-xs outline-none focus:border-primary shadow-xs cursor-pointer"
+          >
+            <option value={10}>10 accounts</option>
+            <option value={15}>15 accounts</option>
+            <option value={25}>25 accounts</option>
+          </select>
+        </div>
+      </div>
+
       {/* STAFF LIST TABLE */}
       {isUsersLoading ? (
         <div className="flex h-[35vh] items-center justify-center text-primary">
           <Loader2 className="h-10 w-10 animate-spin" />
         </div>
       ) : (
-        <div className="bg-card border border-border rounded-card p-1.5 shadow-sm overflow-hidden animate-fade-in-up [animation-delay:100ms]">
-          <DataTable columns={columns} data={users} />
+        <div className="space-y-4 animate-fade-in-up [animation-delay:100ms]">
+          <div className="bg-card border border-border rounded-card p-1.5 shadow-sm overflow-hidden">
+            <DataTable columns={columns} data={users} />
+          </div>
+          {pagination && (
+            <PaginationControls
+              currentPage={page}
+              totalPages={pagination.totalPages}
+              totalItems={pagination.totalItems}
+              limit={limit}
+              onPageChange={(p) => setPage(p)}
+            />
+          )}
         </div>
       )}
 
@@ -357,6 +536,8 @@ export default function UsersPage() {
           setCreateOpen(false);
           setEmail("");
           setPassword("");
+          setName("");
+          setImageUrl("");
           setRoleSelection("WORKER");
           setApiError(null);
         }}
@@ -371,13 +552,13 @@ export default function UsersPage() {
             </button>
             <button
               onClick={() => {
-                if (!email || !password) {
-                  setApiError("Email and password fields are required.");
+                if (!email || !password || !name) {
+                  setApiError("Display Name, Email and password fields are required.");
                   return;
                 }
-                createMutation.mutate({ email, password, role: roleSelection });
+                createMutation.mutate({ email, password, role: roleSelection, name, imageUrl: imageUrl || null });
               }}
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || uploading}
               className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
             >
               {createMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -392,6 +573,19 @@ export default function UsersPage() {
               {apiError}
             </div>
           )}
+
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+              Staff Display Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Rabin Shrestha"
+              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary bg-card"
+            />
+          </div>
 
           <div>
             <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
@@ -417,6 +611,42 @@ export default function UsersPage() {
               placeholder="Minimum 6 characters"
               className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
             />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+              Profile Avatar (Optional)
+            </label>
+            <div className="space-y-2">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImageUpload(file, "new");
+                }}
+                className="w-full text-xs text-ink-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-control file:border-0 file:text-[11px] file:font-black file:bg-primary/10 file:text-primary hover:file:bg-primary/20 file:cursor-pointer"
+              />
+              {uploading && (
+                <div className="flex items-center gap-1.5 text-[10px] text-primary font-semibold">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Uploading profile image...</span>
+                </div>
+              )}
+              {imageUrl && (
+                <div className="relative h-16 w-16 rounded-full overflow-hidden border border-border mt-1">
+                  <img src={imageUrl} alt="Avatar preview" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setImageUrl("")}
+                    className="absolute inset-0 bg-black/40 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                    title="Remove image"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div>
@@ -547,6 +777,101 @@ export default function UsersPage() {
               {apiError}
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* MODAL 4: EDIT STAFF DETAILS */}
+      <Modal
+        isOpen={editOpen}
+        onClose={() => {
+          setEditOpen(false);
+          setEditName("");
+          setEditImageUrl("");
+          setApiError(null);
+          setSelectedUser(null);
+        }}
+        title={`Edit Staff Profile — ${selectedUser?.email}`}
+        footer={
+          <>
+            <button
+              onClick={() => setEditOpen(false)}
+              className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                if (selectedUser && editName) {
+                  updateDetailsMutation.mutate({
+                    id: selectedUser.id,
+                    payload: { name: editName, imageUrl: editImageUrl || null }
+                  });
+                }
+              }}
+              disabled={!editName || updateDetailsMutation.isPending || uploading}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {updateDetailsMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Save Changes</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {apiError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
+              {apiError}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+              Staff Display Name
+            </label>
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="e.g. Rabin Shrestha"
+              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary bg-card"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+              Profile Avatar (Optional)
+            </label>
+            <div className="space-y-2">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImageUpload(file, "edit");
+                }}
+                className="w-full text-xs text-ink-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-control file:border-0 file:text-[11px] file:font-black file:bg-primary/10 file:text-primary hover:file:bg-primary/20 file:cursor-pointer"
+              />
+              {uploading && (
+                <div className="flex items-center gap-1.5 text-[10px] text-primary font-semibold">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Uploading profile image...</span>
+                </div>
+              )}
+              {editImageUrl && (
+                <div className="relative h-16 w-16 rounded-full overflow-hidden border border-border mt-1">
+                  <img src={editImageUrl} alt="Avatar preview" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setEditImageUrl("")}
+                    className="absolute inset-0 bg-black/40 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                    title="Remove image"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </Modal>
     </div>
