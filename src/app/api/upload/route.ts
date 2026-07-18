@@ -1,11 +1,10 @@
 import { requireRole } from "@/services/auth.service";
 import { Role } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
+import { createAdminClient } from "@/lib/supabase";
 
 /**
- * POST /api/upload: Receive image upload and save to local public/uploads directory.
+ * POST /api/upload: Receive image upload and save to Supabase Storage.
  * Restricted to ADMIN and SUPER_ADMIN.
  */
 export async function POST(request: Request) {
@@ -29,19 +28,47 @@ export async function POST(request: Request) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Ensure public/uploads directory exists on disk
-    const uploadDir = path.join(process.cwd(), "public", "uploads");
-    await fs.mkdir(uploadDir, { recursive: true });
+    const supabase = createAdminClient();
+    const bucketName = "uploads";
 
-    // Generate unique name
+    // 1. Ensure the bucket exists by checking/creating it
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    if (listError) {
+      throw new Error(`Failed to list storage buckets: ${listError.message}`);
+    }
+
+    const bucketExists = buckets.some((b) => b.id === bucketName);
+
+    if (!bucketExists) {
+      const { error: createError } = await supabase.storage.createBucket(bucketName, {
+        public: true,
+      });
+      if (createError) {
+        throw new Error(`Failed to create storage bucket: ${createError.message}`);
+      }
+    }
+
+    // 2. Generate a unique name
     const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
     const filename = `${Date.now()}-${cleanName}`;
-    const filePath = path.join(uploadDir, filename);
 
-    // Write file to filesystem
-    await fs.writeFile(filePath, buffer);
+    // 3. Upload buffer to Supabase Storage uploads bucket
+    const { error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(filename, buffer, {
+        contentType: fileType,
+        upsert: true,
+      });
 
-    return NextResponse.json({ url: `/uploads/${filename}` });
+    if (uploadError) {
+      throw new Error(`Storage upload failed: ${uploadError.message}`);
+    }
+
+    // 4. Retrieve public URL
+    const { data: urlData } = supabase.storage.from(bucketName).getPublicUrl(filename);
+    const fileUrl = urlData.publicUrl;
+
+    return NextResponse.json({ url: fileUrl });
   } catch (error: any) {
     const status = error.statusCode || 500;
     return NextResponse.json(

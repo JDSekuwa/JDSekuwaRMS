@@ -220,7 +220,15 @@ export async function deleteStaffUser(
   // 1. Delete user from Supabase Auth
   const { error } = await supabase.auth.admin.deleteUser(targetUserId);
   if (error) {
-    throw new Error(`Failed to delete auth user: ${error.message}`);
+    const isUserNotFound = 
+      error.status === 404 || 
+      error.message?.toLowerCase().includes("not found") ||
+      error.message?.toLowerCase().includes("not_found");
+
+    if (!isUserNotFound) {
+      throw new Error(`Failed to delete auth user: ${error.message}`);
+    }
+    console.warn(`Auth user ${targetUserId} not found in Supabase during deletion. Cleaning up database profile.`);
   }
 
   // 2. Delete database Profile (Prisma schema will cascade deletes if configured, 
