@@ -358,11 +358,16 @@ export default function UsersPage() {
                   onChange={(e) => {
                     updateRoleMutation.mutate({ id: row.id, role: e.target.value });
                   }}
-                  className="rounded-control border border-border bg-card text-ink font-semibold px-2 py-1 text-xs outline-none focus:border-primary disabled:opacity-50 select-none shadow-xs"
+                  className={cn(
+                    "rounded-control border font-extrabold px-2.5 py-1 text-[10px] uppercase tracking-wider outline-none disabled:opacity-50 select-none cursor-pointer shadow-xs transition-all",
+                    val === "SUPER_ADMIN" ? "bg-danger/10 text-danger border-danger/25 hover:bg-danger/20" :
+                    val === "ADMIN" ? "bg-warning/10 text-warning border-warning/25 hover:bg-warning/20" :
+                    "bg-info/10 text-info border-info/25 hover:bg-info/20"
+                  )}
                 >
-                  <option value="SUPER_ADMIN">Super Admin</option>
-                  <option value="ADMIN">Admin</option>
-                  <option value="WORKER">Worker</option>
+                  <option value="SUPER_ADMIN" className="bg-white text-ink dark:bg-card">Super Admin</option>
+                  <option value="ADMIN" className="bg-white text-ink dark:bg-card">Admin</option>
+                  <option value="WORKER" className="bg-white text-ink dark:bg-card">Worker</option>
                 </select>
                 {isUpdating && <Loader2 className="absolute -right-5 h-3.5 w-3.5 animate-spin text-primary" />}
               </div>
@@ -388,7 +393,7 @@ export default function UsersPage() {
         const isSelf = currentUser?.id === row.id;
 
         return (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 select-none">
             <button
               onClick={() => {
                 setSelectedUser(row);
@@ -396,10 +401,10 @@ export default function UsersPage() {
                 setEditImageUrl(row.imageUrl || "");
                 setEditOpen(true);
               }}
-              className="flex items-center gap-1 text-[11px] text-primary hover:text-primary-hover font-bold"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] uppercase tracking-wider font-extrabold text-info bg-info/10 hover:bg-info/20 border border-info/20 hover:border-info/40 rounded-control transition-all cursor-pointer shadow-xs"
               title="Edit Profile"
             >
-              <Shield className="h-3.5 w-3.5" />
+              <Shield className="h-3 w-3" />
               <span>Edit Profile</span>
             </button>
 
@@ -408,10 +413,10 @@ export default function UsersPage() {
                 setSelectedUser(row);
                 setResetOpen(true);
               }}
-              className="flex items-center gap-1 text-[11px] text-ink-muted hover:text-ink font-bold"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] uppercase tracking-wider font-extrabold text-warning bg-warning/10 hover:bg-warning/20 border border-warning/20 hover:border-warning/40 rounded-control transition-all cursor-pointer shadow-xs"
               title="Override Password"
             >
-              <Key className="h-3.5 w-3.5" />
+              <Key className="h-3 w-3" />
               <span>Reset Credentials</span>
             </button>
 
@@ -421,10 +426,10 @@ export default function UsersPage() {
                   setSelectedUser(row);
                   setDeleteOpen(true);
                 }}
-                className="flex items-center gap-1 text-[11px] text-ink-muted hover:text-danger font-bold"
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] uppercase tracking-wider font-extrabold text-danger bg-danger/10 hover:bg-danger/20 border border-danger/20 hover:border-danger/40 rounded-control transition-all cursor-pointer shadow-xs"
                 title="Delete Account"
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-3 w-3" />
                 <span>Delete</span>
               </button>
             )}

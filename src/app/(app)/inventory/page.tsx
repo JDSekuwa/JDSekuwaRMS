@@ -542,7 +542,7 @@ export default function InventoryPage() {
             setRecipeError(null);
           }}
           title="Recipe Builder & Ingredient Costing"
-          className="max-w-4xl"
+          className="max-w-[96vw] md:max-w-7xl w-full h-[90vh] flex flex-col"
           footer={
             <>
               <button
@@ -638,7 +638,7 @@ export default function InventoryPage() {
                   </button>
                 </div>
 
-                <div className="space-y-2.5 max-h-[450px] overflow-y-auto pr-1">
+                <div className="space-y-2.5 pr-1">
                   {recipeLines.map((line, idx) => (
                     <div key={idx} className="flex gap-3 items-end">
                       <div className="flex-1">

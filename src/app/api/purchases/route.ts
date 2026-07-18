@@ -3,6 +3,7 @@ import { recordPurchase, listPurchases, PurchaseFilters } from "@/services/purch
 import { Role } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { serverCache } from "@/lib/cache";
 
 const purchaseSchema = z.object({
   rawItemId: z.string().uuid("Invalid rawItemId format"),
@@ -68,6 +69,11 @@ export async function POST(request: Request) {
 
     const { rawItemId, qty, unitCost, supplierName } = result.data;
     const purchase = await recordPurchase(rawItemId, qty, unitCost, supplierName, profile.id);
+    
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return NextResponse.json(purchase);
   } catch (error: any) {
     const status = error.statusCode || 500;

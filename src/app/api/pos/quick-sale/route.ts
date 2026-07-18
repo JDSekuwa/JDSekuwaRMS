@@ -3,6 +3,7 @@ import { createQuickSale } from "@/services/sales.service";
 import { PaymentType, Role } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { serverCache } from "@/lib/cache";
 
 const quickSaleSchema = z.object({
   items: z.array(
@@ -43,6 +44,10 @@ export async function POST(request: Request) {
       discount,
       customerInfo
     );
+
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
 
     return NextResponse.json(quickSale);
   } catch (error: any) {

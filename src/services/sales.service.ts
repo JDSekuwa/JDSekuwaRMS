@@ -5,6 +5,7 @@ import { logAction } from "./audit.service";
 import { deductForSale, restoreForVoid } from "./inventory.service";
 import { TableConflictError, ForbiddenError } from "../lib/errors";
 import { upsertCreditEntry } from "./credit.service";
+import { serverCache } from "../lib/cache";
 
 /**
  * Creates a POS Quick Sale complete transaction.
@@ -101,8 +102,12 @@ export async function createQuickSale(
       tx
     );
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return quickSale;
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -248,8 +253,12 @@ export async function voidOrderItem(
       tx
     );
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return updatedOrderItem;
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -308,8 +317,12 @@ export async function openTableOrder(
 
     await logAction(userId, "OPEN_TABLE_ORDER", "TableOrder", order.id, { tableId }, tx);
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return order;
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -385,8 +398,12 @@ export async function addItemsToTableOrder(
       tx
     );
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return createdItems;
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -450,8 +467,12 @@ export async function removeItemFromTableOrder(
       tx
     );
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return { success: true };
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -549,8 +570,12 @@ export async function moveTableOrder(
       tx
     );
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return { success: true };
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -659,8 +684,12 @@ export async function mergeTableOrders(
       tx
     );
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return { success: true };
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -794,6 +823,10 @@ export async function closeTableOrder(
       tx
     );
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return { success: true };
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }

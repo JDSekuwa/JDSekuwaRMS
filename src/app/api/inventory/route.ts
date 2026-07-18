@@ -5,6 +5,7 @@ import { UnauthenticatedError } from "@/lib/errors";
 import { Role, Unit } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
 import { superuserPrisma } from "@/lib/prisma";
+import { serverCache } from "@/lib/cache";
 
 export async function GET(request: Request) {
   try {
@@ -15,8 +16,17 @@ export async function GET(request: Request) {
 
     const { skip, take, search, page, limit } = getPaginationParams(request);
 
+    const cacheKey = `inventory:${profile.role}:skip:${skip}:take:${take}:search:${search || ""}`;
+    const cachedData = serverCache.get(cacheKey);
+    if (cachedData) {
+      return NextResponse.json(cachedData);
+    }
+
     const { items, total } = await getInventoryList(profile.role, { skip, take, search });
-    return NextResponse.json(paginateResults(items, total, page, limit));
+    const result = paginateResults(items, total, page, limit);
+    serverCache.set(cacheKey, result, 5); // Cache inventory lists for 5 seconds
+
+    return NextResponse.json(result);
   } catch (error: any) {
     const status = error.statusCode || 500;
     return NextResponse.json(
@@ -58,6 +68,10 @@ export async function POST(request: Request) {
         currentStock: Number(currentStock)
       }
     });
+
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
 
     return NextResponse.json(newItem);
   } catch (error: any) {

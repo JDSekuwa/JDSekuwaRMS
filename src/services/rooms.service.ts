@@ -5,6 +5,7 @@ import { logAction } from "./audit.service";
 import { deductForSale } from "./inventory.service";
 import { upsertCreditEntry } from "./credit.service";
 import { RoomConflictError, ForbiddenError } from "../lib/errors";
+import { serverCache } from "../lib/cache";
 
 export interface GuestDetails {
   guestName: string;
@@ -166,8 +167,12 @@ export async function checkIn(
 
     await logAction(userId, "CHECK_IN_ROOM", "RoomStay", roomStay.id, { roomId }, tx);
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return roomStay;
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -235,8 +240,12 @@ export async function addRoomServiceCharge(
 
     await logAction(userId, "ADD_ROOM_SERVICE_CHARGE", "RoomStay", roomStayId, { menuItemId, qty }, tx);
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return orderItem;
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -309,8 +318,12 @@ export async function addRoomServiceCharges(
 
     await logAction(userId, "ADD_ROOM_SERVICE_CHARGES", "RoomStay", roomStayId, { charges }, tx);
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return createdItems;
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -359,8 +372,12 @@ export async function updateRoomStayDates(
 
     await logAction(userId, "UPDATE_ROOM_STAY_DATES", "RoomStay", roomStayId, { expectedCheckOut, numNights }, tx);
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return { success: true };
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
@@ -466,6 +483,10 @@ export async function checkOut(
       tx
     );
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return {
       roomStayId,
       total,
@@ -473,5 +494,5 @@ export async function checkOut(
       roomCharge,
       foodCharges
     };
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }

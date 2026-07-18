@@ -486,7 +486,7 @@ export default function MenuConfigPage() {
       key: "actions",
       label: "Administrative Actions",
       render: (_: any, row: MenuItem) => (
-        <div className="flex items-center gap-3 select-none">
+        <div className="flex items-center gap-2 select-none">
           <button
             onClick={() => {
               setSelectedItem(row);
@@ -496,10 +496,10 @@ export default function MenuConfigPage() {
               setImageUrl(row.imageUrl || "");
               setManageOpen(true);
             }}
-            className="flex items-center gap-1 text-[11px] text-primary hover:text-primary-hover font-bold"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] uppercase tracking-wider font-extrabold text-info bg-info/10 hover:bg-info/20 border border-info/20 hover:border-info/40 rounded-control transition-all cursor-pointer shadow-xs"
             title="Edit product details"
           >
-            <Edit2 className="h-3.5 w-3.5" />
+            <Edit2 className="h-3 w-3" />
             <span>Edit</span>
           </button>
 
@@ -508,10 +508,10 @@ export default function MenuConfigPage() {
               setSelectedItem(row);
               setRecipeOpen(true);
             }}
-            className="flex items-center gap-1 text-[11px] text-info hover:text-info-hover font-bold"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] uppercase tracking-wider font-extrabold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 hover:border-primary/40 rounded-control transition-all cursor-pointer shadow-xs"
             title="Edit recipe raw ingredients"
           >
-            <Scale className="h-3.5 w-3.5" />
+            <Scale className="h-3 w-3" />
             <span>Recipe</span>
           </button>
 
@@ -520,10 +520,10 @@ export default function MenuConfigPage() {
               setSelectedItem(row);
               setDeleteOpen(true);
             }}
-            className="flex items-center gap-1 text-[11px] text-ink-muted hover:text-danger font-bold"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] uppercase tracking-wider font-extrabold text-danger bg-danger/10 hover:bg-danger/20 border border-danger/20 hover:border-danger/40 rounded-control transition-all cursor-pointer shadow-xs"
             title="Delete product"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 className="h-3 w-3" />
             <span>Delete</span>
           </button>
         </div>

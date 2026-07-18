@@ -13,12 +13,14 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
 
   if (["VACANT", "PAID", "CLOSED", "SUCCESS"].includes(normStatus)) {
     colorClasses = "bg-success/10 text-success border-success/20 dark:bg-success/20";
-  } else if (["OCCUPIED", "PENDING", "PARTIAL", "WARNING"].includes(normStatus)) {
+  } else if (["OCCUPIED", "PENDING", "PARTIAL", "WARNING", "ADMIN"].includes(normStatus)) {
     colorClasses = "bg-warning/10 text-warning border-warning/20 dark:bg-warning/20";
-  } else if (["RESERVED", "ACTIVE", "INFO"].includes(normStatus)) {
+  } else if (["RESERVED", "ACTIVE", "INFO", "WORKER", "BAR/STARTERS", "BAR", "STARTERS"].includes(normStatus)) {
     colorClasses = "bg-info/10 text-info border-info/20 dark:bg-info/20";
-  } else if (["VOIDED", "WRITTEN_OFF", "OVERDUE", "CANCELLED", "DANGER"].includes(normStatus)) {
+  } else if (["VOIDED", "WRITTEN_OFF", "OVERDUE", "CANCELLED", "DANGER", "SUPER_ADMIN"].includes(normStatus)) {
     colorClasses = "bg-danger/10 text-danger border-danger/20 dark:bg-danger/20";
+  } else if (["KITCHEN"].includes(normStatus)) {
+    colorClasses = "bg-primary/10 text-primary border-primary/20";
   }
 
   // Format status text for UI display (e.g. "WRITTEN_OFF" -> "Written Off", "VACANT" -> "Vacant")

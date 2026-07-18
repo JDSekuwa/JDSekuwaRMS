@@ -3,6 +3,7 @@ import { Role } from "../generated/prisma/client";
 import { setSessionContext } from "./auth.service";
 import { logAction } from "./audit.service";
 import { ForbiddenError } from "../lib/errors";
+import { serverCache } from "../lib/cache";
 
 export interface PurchaseFilters {
   dateRange?: {
@@ -82,8 +83,12 @@ export async function recordPurchase(
       tx
     );
 
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
     return purchase;
-  });
+  }, { maxWait: 5000, timeout: 15000 });
 }
 
 /**
