@@ -1,6 +1,6 @@
 import { prisma, superuserPrisma } from "../lib/prisma";
 import { Role, RoomStatus, RoomStayStatus, PaymentType, CreditSource } from "../generated/prisma/client";
-import { setSessionContext } from "./auth.service";
+import { setSessionContext, getCachedProfile } from "./auth.service";
 import { logAction } from "./audit.service";
 import { deductForSale } from "./inventory.service";
 import { upsertCreditEntry } from "./credit.service";
@@ -16,9 +16,7 @@ export interface GuestDetails {
 }
 
 async function requireAdmin(callerUserId: string) {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: callerUserId }
-  });
+  const profile = await getCachedProfile(callerUserId);
   if (!profile || (profile.role !== Role.ADMIN && profile.role !== Role.SUPER_ADMIN)) {
     throw new ForbiddenError("Only Admins and Super Admins can manage lodging rooms.");
   }
@@ -110,9 +108,7 @@ export async function checkIn(
   guestDetails: GuestDetails,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -184,9 +180,7 @@ export async function addRoomServiceCharge(
   qty: number,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -256,9 +250,7 @@ export async function addRoomServiceCharges(
   charges: Array<{ menuItemId: string; qty: number }>,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -335,9 +327,7 @@ export async function updateRoomStayDates(
   numNights: number,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -389,9 +379,7 @@ export async function checkOut(
   paymentType: PaymentType,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }

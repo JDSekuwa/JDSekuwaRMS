@@ -1,6 +1,6 @@
 import { prisma, superuserPrisma } from "../lib/prisma";
 import { CreditSource, CreditStatus, Role } from "../generated/prisma/client";
-import { setSessionContext } from "./auth.service";
+import { setSessionContext, getCachedProfile } from "./auth.service";
 import { logAction } from "./audit.service";
 import { ForbiddenError } from "../lib/errors";
 
@@ -161,9 +161,7 @@ export async function recordPayment(
   amount: number,
   recordedById: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: recordedById }
-  });
+  const profile = await getCachedProfile(recordedById);
   if (!profile) {
     throw new Error("Recorder profile not found");
   }
@@ -225,9 +223,7 @@ export async function writeOff(
   creditLedgerId: string,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }

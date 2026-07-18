@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal-sheet";
@@ -80,7 +80,8 @@ export default function PurchasesPage() {
       const res = await fetch(`/api/purchases?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to retrieve purchases history");
       return res.json();
-    }
+    },
+    placeholderData: keepPreviousData,
   });
   const purchases = paginatedData?.data || [];
   const pagination = paginatedData?.pagination;

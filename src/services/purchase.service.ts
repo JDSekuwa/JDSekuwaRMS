@@ -1,6 +1,6 @@
 import { prisma, superuserPrisma } from "../lib/prisma";
 import { Role } from "../generated/prisma/client";
-import { setSessionContext } from "./auth.service";
+import { setSessionContext, getCachedProfile } from "./auth.service";
 import { logAction } from "./audit.service";
 import { ForbiddenError } from "../lib/errors";
 import { serverCache } from "../lib/cache";
@@ -24,9 +24,7 @@ export async function recordPurchase(
   supplierName: string | null | undefined,
   recordedById: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: recordedById }
-  });
+  const profile = await getCachedProfile(recordedById);
   if (!profile) {
     throw new Error("Recorder profile not found");
   }
@@ -99,9 +97,7 @@ export async function listPurchases(
   filters: PurchaseFilters & { skip?: number; take?: number; search?: string },
   userId: string
 ): Promise<any[] | { purchases: any[]; total: number }> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User profile not found");
   }

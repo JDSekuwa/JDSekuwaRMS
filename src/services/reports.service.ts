@@ -1,6 +1,7 @@
 import { superuserPrisma } from "../lib/prisma";
 import { Role, TableOrderStatus, RoomStayStatus } from "../generated/prisma/client";
 import { ForbiddenError } from "../lib/errors";
+import { getCachedProfile } from "./auth.service";
 
 export interface DateRange {
   start: Date;
@@ -9,9 +10,7 @@ export interface DateRange {
 
 // Helper: Assert Caller has Admin/SuperAdmin Role
 async function assertAdminOrSuper(userId: string) {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("Caller profile not found");
   }
@@ -23,9 +22,7 @@ async function assertAdminOrSuper(userId: string) {
 
 // Helper: Assert Caller has SuperAdmin Role Only
 async function assertSuperAdmin(userId: string) {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("Caller profile not found");
   }

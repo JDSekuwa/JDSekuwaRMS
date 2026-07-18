@@ -9,19 +9,38 @@ import { getDailySalesSummary } from "./reports.service";
  * Strips all financial figures entirely for the WORKER role at the service layer.
  */
 export async function getDashboardData(role: Role, userId: string) {
-  // 1. Daily Sales Summary (Admin/SuperAdmin only)
-  let dailySales = null;
-  if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
-    try {
-      dailySales = await getDailySalesSummary(userId);
-    } catch (e) {
-      dailySales = null;
-    }
-  }
+  // Run all independent queries in parallel
+  const [dailySales, inventoryResult, creditResult, rooms, tables] = await Promise.all([
+    // 1. Daily Sales Summary (Admin/SuperAdmin only)
+    (role === Role.ADMIN || role === Role.SUPER_ADMIN)
+      ? getDailySalesSummary(userId).catch(() => null)
+      : Promise.resolve(null),
+    // 2. Inventory Alert List
+    getInventoryList(role),
+    // 3. Credit Reminders (Admin/SuperAdmin only)
+    (role === Role.ADMIN || role === Role.SUPER_ADMIN)
+      ? listCreditCustomers().catch(() => ({ data: [] }))
+      : Promise.resolve({ data: [] }),
+    // 4. Room Status Summary
+    superuserPrisma.room.findMany({
+      orderBy: { name: "asc" }
+    }),
+    // 5. Table Status Summary
+    superuserPrisma.restaurantTable.findMany({
+      include: {
+        orders: {
+          where: { status: "OPEN" },
+          include: {
+            items: true
+          }
+        }
+      },
+      orderBy: { name: "asc" }
+    })
+  ]);
 
-  // 2. Stock Alerts (Ingredients below min threshold)
-  const { items: inventory } = await getInventoryList(role);
-  const stockAlerts = inventory
+  // Map inventory alerts
+  const stockAlerts = (inventoryResult.items || [])
     .filter(item => item.currentStock < item.minThreshold)
     .map(item => ({
       id: item.id,
@@ -31,18 +50,11 @@ export async function getDashboardData(role: Role, userId: string) {
       minThreshold: item.minThreshold
     }));
 
-  // 3. Credit Reminders (Top 5 overdue first, Admin/SuperAdmin only)
-  let creditReminders: any[] = [];
-  if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
-    const credits = await listCreditCustomers();
-    const creditsArray = Array.isArray(credits) ? credits : credits.data;
-    creditReminders = creditsArray.slice(0, 5);
-  }
+  // Map credit reminders
+  const creditsArray = Array.isArray(creditResult) ? creditResult : creditResult.data;
+  const creditReminders = (creditsArray || []).slice(0, 5);
 
-  // 4. Room Status Summary
-  const rooms = await superuserPrisma.room.findMany({
-    orderBy: { name: "asc" }
-  });
+  // Map room status summary
   const roomsMapped = rooms.map(r => ({
     id: r.id,
     name: r.name,
@@ -51,19 +63,7 @@ export async function getDashboardData(role: Role, userId: string) {
     imageUrl: r.imageUrl
   }));
 
-  // 5. Table Status Summary
-  const tables = await superuserPrisma.restaurantTable.findMany({
-    include: {
-      orders: {
-        where: { status: "OPEN" },
-        include: {
-          items: true
-        }
-      }
-    },
-    orderBy: { name: "asc" }
-  });
-
+  // Map table status summary
   const tablesMapped = tables.map(t => {
     let openOrderTotal = null;
     if (role !== Role.WORKER) {

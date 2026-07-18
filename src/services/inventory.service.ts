@@ -1,6 +1,6 @@
 import { prisma, superuserPrisma } from "../lib/prisma";
 import { Role } from "../generated/prisma/client";
-import { setSessionContext } from "./auth.service";
+import { setSessionContext, getCachedProfile } from "./auth.service";
 import { logAction } from "./audit.service";
 import { InsufficientStockError } from "../lib/errors";
 
@@ -103,9 +103,7 @@ export async function adjustStock(
   userId: string
 ): Promise<any> {
   // Use superuser client to resolve the user profile bypass RLS
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId },
-  });
+  const profile = await getCachedProfile(userId);
 
   if (!profile) {
     throw new Error("Profile not found.");

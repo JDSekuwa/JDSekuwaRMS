@@ -1,6 +1,6 @@
 import { prisma, superuserPrisma } from "../lib/prisma";
 import { Role, PaymentType, TableStatus, TableOrderStatus, CreditSource, CreditStatus } from "../generated/prisma/client";
-import { setSessionContext } from "./auth.service";
+import { setSessionContext, getCachedProfile } from "./auth.service";
 import { logAction } from "./audit.service";
 import { deductForSale, restoreForVoid } from "./inventory.service";
 import { TableConflictError, ForbiddenError } from "../lib/errors";
@@ -17,9 +17,7 @@ export async function createQuickSale(
   discount: number = 0,
   customerInfo?: { customerName: string; phone: string }
 ): Promise<any> {
-  const cashier = await superuserPrisma.profile.findUnique({
-    where: { id: cashierId }
-  });
+  const cashier = await getCachedProfile(cashierId);
   if (!cashier) {
     throw new Error("Cashier not found");
   }
@@ -117,9 +115,7 @@ export async function voidOrderItem(
   orderItemId: string,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -269,9 +265,7 @@ export async function openTableOrder(
   tag: string | null = null,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -333,9 +327,7 @@ export async function addItemsToTableOrder(
   items: Array<{ menuItemId: string; qty: number; rawQtyOverride?: number }>,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -413,9 +405,7 @@ export async function removeItemFromTableOrder(
   orderItemId: string,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -483,9 +473,7 @@ export async function moveTableOrder(
   targetTableId: string,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -586,9 +574,7 @@ export async function mergeTableOrders(
   targetTableOrderId: string,
   userId: string
 ): Promise<any> {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: userId }
-  });
+  const profile = await getCachedProfile(userId);
   if (!profile) {
     throw new Error("User not found");
   }
@@ -702,9 +688,7 @@ export async function closeTableOrder(
   discount: number = 0,
   customerInfo?: { customerName: string; phone: string }
 ): Promise<any> {
-  const cashier = await superuserPrisma.profile.findUnique({
-    where: { id: cashierId }
-  });
+  const cashier = await getCachedProfile(cashierId);
   if (!cashier) {
     throw new Error("Cashier not found");
   }

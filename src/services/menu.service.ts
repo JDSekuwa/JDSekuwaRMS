@@ -2,14 +2,13 @@ import { prisma, superuserPrisma } from "../lib/prisma";
 import { Role } from "../generated/prisma/client";
 import { logAction } from "./audit.service";
 import { ForbiddenError } from "../lib/errors";
+import { getCachedProfile } from "./auth.service";
 
 /**
  * Assures caller is an ADMIN or SUPER_ADMIN profile.
  */
 async function requireAdmin(callerUserId: string) {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: callerUserId }
-  });
+  const profile = await getCachedProfile(callerUserId);
   if (!profile || (profile.role !== Role.ADMIN && profile.role !== Role.SUPER_ADMIN)) {
     throw new ForbiddenError("Only Admins and Super Admins can manage the restaurant menu.");
   }

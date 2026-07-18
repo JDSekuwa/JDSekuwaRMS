@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, TableColumn } from "@/components/ui/data-table";
@@ -137,7 +137,8 @@ export default function InventoryPage() {
       const res = await fetch(`/api/inventory?page=${page}&limit=${limit}&search=${encodeURIComponent(searchQuery)}`);
       if (!res.ok) throw new Error("Failed to load inventory");
       return res.json();
-    }
+    },
+    placeholderData: keepPreviousData,
   });
   const inventory = paginatedData?.data || [];
   const pagination = paginatedData?.pagination;

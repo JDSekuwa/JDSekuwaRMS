@@ -1,13 +1,12 @@
-import { createClient } from "@/lib/supabase";
+import { getCachedUser } from "@/services/auth.service";
 import { Role } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
+    const user = await getCachedUser();
 
-    if (error || !user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

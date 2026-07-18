@@ -3,14 +3,14 @@ import { Role } from "../generated/prisma/client";
 import { createAdminClient } from "../lib/supabase";
 import { logAction } from "./audit.service";
 import { ForbiddenError } from "../lib/errors";
+import { getCachedProfile } from "./auth.service";
+import { serverCache } from "../lib/cache";
 
 /**
  * Assures caller is a SUPER_ADMIN profile.
  */
 async function requireSuperAdmin(callerUserId: string) {
-  const profile = await superuserPrisma.profile.findUnique({
-    where: { id: callerUserId }
-  });
+  const profile = await getCachedProfile(callerUserId);
   if (!profile || profile.role !== Role.SUPER_ADMIN) {
     throw new ForbiddenError("Only Super Admins can manage staff profiles.");
   }
@@ -161,6 +161,8 @@ export async function updateStaffUserRole(
     data: { role: newRole }
   });
 
+  serverCache.invalidate(`profile:${targetUserId}`);
+
   await logAction(
     callerUserId,
     "UPDATE_STAFF_USER_ROLE",
@@ -226,6 +228,8 @@ export async function deleteStaffUser(
   const profile = await superuserPrisma.profile.delete({
     where: { id: targetUserId }
   });
+
+  serverCache.invalidate(`profile:${targetUserId}`);
 
   await logAction(
     callerUserId,

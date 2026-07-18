@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
@@ -139,7 +139,8 @@ export default function UsersPage() {
       if (!res.ok) throw new Error("Failed to load staff list.");
       return res.json();
     },
-    enabled: currentUserRole === "SUPER_ADMIN"
+    enabled: currentUserRole === "SUPER_ADMIN",
+    placeholderData: keepPreviousData,
   });
   const users = paginatedData?.data || [];
   const pagination = paginatedData?.pagination;

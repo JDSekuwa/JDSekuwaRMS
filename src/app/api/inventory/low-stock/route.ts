@@ -2,11 +2,18 @@ import { requireRole } from "@/services/auth.service";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
+import { serverCache } from "@/lib/cache";
 
 export async function GET() {
   try {
     // Authenticate user
     await requireRole([Role.WORKER, Role.ADMIN, Role.SUPER_ADMIN]);
+
+    const cacheKey = "inventory:low-stock";
+    const cachedData = serverCache.get<any[]>(cacheKey);
+    if (cachedData) {
+      return NextResponse.json(cachedData);
+    }
 
     // Fetch all raw items
     const rawItems = await prisma.rawItem.findMany({
@@ -23,6 +30,8 @@ export async function GET() {
         minThreshold: Number(item.minThreshold),
         unit: item.unit
       }));
+
+    serverCache.set(cacheKey, lowStockItems, 5); // Cache for 5 seconds
 
     return NextResponse.json(lowStockItems);
   } catch (error: any) {
