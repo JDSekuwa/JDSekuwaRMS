@@ -28,12 +28,6 @@ function LoginContent() {
 
   const redirectPath = searchParams?.get("redirect") || "/";
 
-  const handleAutofill = (roleEmail: string) => {
-    setEmail(roleEmail);
-    setPassword("Password123!");
-    setError(null);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -234,43 +228,6 @@ function LoginContent() {
               )}
             </button>
           </form>
-
-          {/* Quick Sandbox Autofill Options */}
-          <div className="mt-10 border-t border-zinc-100 pt-6">
-            <h2 className="text-center text-xs font-bold uppercase tracking-widest text-zinc-400 mb-4">
-              Demo Sandbox Accounts
-            </h2>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleAutofill("superadmin@example.com")}
-                className="rounded-xl border border-zinc-200 bg-zinc-50/50 py-2.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 transition duration-200 active:scale-[0.98]"
-              >
-                Super Admin
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAutofill("admin1@example.com")}
-                className="rounded-xl border border-zinc-200 bg-zinc-50/50 py-2.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 transition duration-200 active:scale-[0.98]"
-              >
-                Admin (Resto)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAutofill("worker1@example.com")}
-                className="rounded-xl border border-zinc-200 bg-zinc-50/50 py-2.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 transition duration-200 active:scale-[0.98]"
-              >
-                Worker (Waiter)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAutofill("worker2@example.com")}
-                className="rounded-xl border border-zinc-200 bg-zinc-50/50 py-2.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 transition duration-200 active:scale-[0.98]"
-              >
-                Worker (Kitchen)
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

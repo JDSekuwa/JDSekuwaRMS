@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/ui/page-header";
@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/modal-sheet";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { Scale, FileText, Loader2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 interface InventoryItem {
   id: string;
@@ -49,6 +50,8 @@ interface RecipeData {
   } | null;
   costPerUnit: number | null;
 }
+
+
 
 export default function InventoryPage() {
   const { role } = useAuth();
@@ -139,8 +142,21 @@ export default function InventoryPage() {
   const inventory = paginatedData?.data || [];
   const pagination = paginatedData?.pagination;
 
-  // 2. Query menu items list (only for Admin/SuperAdmin for recipe building)
   const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
+
+  // 1.5. Query all raw items for Recipe Builder (bypass pagination, up to 1000 items)
+  const { data: allRawItems = [] } = useQuery<InventoryItem[]>({
+    queryKey: ["all-raw-items"],
+    queryFn: async () => {
+      const res = await fetch("/api/inventory?page=1&limit=1000");
+      if (!res.ok) throw new Error("Failed to load all inventory items");
+      const result = await res.json();
+      return result.data || [];
+    },
+    enabled: recipeModalOpen && isAdmin
+  });
+
+  // 2. Query menu items list (only for Admin/SuperAdmin for recipe building)
   const { data: menuItems = [] } = useQuery<MenuItem[]>({
     queryKey: ["menu-items"],
     queryFn: async () => {
@@ -526,7 +542,7 @@ export default function InventoryPage() {
             setRecipeError(null);
           }}
           title="Recipe Builder & Ingredient Costing"
-          className="max-w-2xl"
+          className="max-w-4xl"
           footer={
             <>
               <button
@@ -553,19 +569,15 @@ export default function InventoryPage() {
               <label className="block text-xs font-bold text-ink-muted uppercase mb-1.5">
                 Select Menu Item
               </label>
-              <select
+              <SearchableSelect
                 value={selectedMenuId}
-                onChange={(e) => setSelectedMenuId(e.target.value)}
-                required
-                className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink bg-white outline-none focus:border-primary"
-              >
-                <option value="">-- Choose Menu Item --</option>
-                {menuItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} (Rs. {Number(item.price).toFixed(2)})
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setSelectedMenuId(val)}
+                options={menuItems.map((item) => ({
+                  id: item.id,
+                  label: `${item.name} (Rs. ${Number(item.price).toFixed(2)})`
+                }))}
+                placeholder="-- Choose Menu Item --"
+              />
             </div>
 
             {/* Live Pricing Breakdown */}
@@ -626,26 +638,22 @@ export default function InventoryPage() {
                   </button>
                 </div>
 
-                <div className="space-y-2.5 max-h-[200px] overflow-y-auto pr-1">
+                <div className="space-y-2.5 max-h-[450px] overflow-y-auto pr-1">
                   {recipeLines.map((line, idx) => (
                     <div key={idx} className="flex gap-3 items-end">
                       <div className="flex-1">
                         <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
                           Ingredient
                         </label>
-                        <select
+                        <SearchableSelect
                           value={line.rawItemId}
-                          onChange={(e) => handleRecipeLineChange(idx, "rawItemId", e.target.value)}
-                          required
-                          className="w-full rounded-control border border-border px-2.5 py-1.5 text-xs text-ink bg-white outline-none focus:border-primary"
-                        >
-                          <option value="">-- Choose Raw Ingredient --</option>
-                          {inventory.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name} ({item.unit})
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(val) => handleRecipeLineChange(idx, "rawItemId", val)}
+                          options={allRawItems.map((item) => ({
+                            id: item.id,
+                            label: `${item.name} (${item.unit})`
+                          }))}
+                          placeholder="-- Choose Raw Ingredient --"
+                        />
                       </div>
 
                       <div className="w-32">

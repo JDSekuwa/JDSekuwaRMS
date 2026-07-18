@@ -25,6 +25,10 @@ export default function SettingsPage() {
   const [receptionPrinter, setReceptionPrinter] = useState("");
   const [restaurantName, setRestaurantName] = useState("JD Sekuwa House");
   const [contactPhone, setContactPhone] = useState("+977-1-4XXXXXX");
+  const [restaurantAddress, setRestaurantAddress] = useState("Lalitpur, Nepal");
+  const [restaurantEmail, setRestaurantEmail] = useState("info@jdsekuwa.com");
+  const [welcomeNote, setWelcomeNote] = useState("Welcome to JD Sekuwa House");
+  const [thankYouNote, setThankYouNote] = useState("Thank you for dining with us!");
 
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
   const [isResetting, setIsResetting] = useState(false);
@@ -72,6 +76,10 @@ export default function SettingsPage() {
         if (parsed.receptionPrinter) setReceptionPrinter(parsed.receptionPrinter);
         if (parsed.restaurantName) setRestaurantName(parsed.restaurantName);
         if (parsed.contactPhone) setContactPhone(parsed.contactPhone);
+        if (parsed.restaurantAddress) setRestaurantAddress(parsed.restaurantAddress);
+        if (parsed.restaurantEmail) setRestaurantEmail(parsed.restaurantEmail);
+        if (parsed.welcomeNote) setWelcomeNote(parsed.welcomeNote);
+        if (parsed.thankYouNote) setThankYouNote(parsed.thankYouNote);
       } catch (e) {
         console.warn("Failed to parse saved printer configurations:", e);
       }
@@ -83,7 +91,11 @@ export default function SettingsPage() {
       kitchenPrinter,
       receptionPrinter,
       restaurantName,
-      contactPhone
+      contactPhone,
+      restaurantAddress,
+      restaurantEmail,
+      welcomeNote,
+      thankYouNote
     };
     localStorage.setItem("jd_sekuwa_printers", JSON.stringify(config));
     
@@ -160,7 +172,7 @@ export default function SettingsPage() {
 
           <div className="space-y-4 text-xs">
             <div>
-              <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1.5">Restaurant Name</label>
+              <label className="block text-xs font-bold text-ink uppercase mb-1.5">Restaurant Name</label>
               <input
                 type="text"
                 value={restaurantName}
@@ -169,11 +181,47 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1.5">Contact Phone</label>
+              <label className="block text-xs font-bold text-ink uppercase mb-1.5">Contact Phone</label>
               <input
                 type="text"
                 value={contactPhone}
                 onChange={(e) => setContactPhone(e.target.value)}
+                className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-ink uppercase mb-1.5">Restaurant Address</label>
+              <input
+                type="text"
+                value={restaurantAddress}
+                onChange={(e) => setRestaurantAddress(e.target.value)}
+                className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-ink uppercase mb-1.5">Restaurant Email</label>
+              <input
+                type="email"
+                value={restaurantEmail}
+                onChange={(e) => setRestaurantEmail(e.target.value)}
+                className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-ink uppercase mb-1.5">Welcome Note</label>
+              <textarea
+                value={welcomeNote}
+                onChange={(e) => setWelcomeNote(e.target.value)}
+                rows={2}
+                className="w-full rounded-control border border-border px-3 py-2 text-xs text-ink outline-none focus:border-primary resize-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-ink uppercase mb-1.5">Thank You Note</label>
+              <input
+                type="text"
+                value={thankYouNote}
+                onChange={(e) => setThankYouNote(e.target.value)}
                 className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
               />
             </div>
@@ -190,7 +238,7 @@ export default function SettingsPage() {
           <div className="space-y-4 text-xs">
             {/* Reception Invoice Printer */}
             <div>
-              <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1.5">
+              <label className="block text-xs font-bold text-ink uppercase mb-1.5">
                 Reception Printer Mapping
               </label>
               {isConnected && printers.length > 0 ? (
@@ -219,7 +267,7 @@ export default function SettingsPage() {
 
             {/* Kitchen Order Ticket Printer */}
             <div>
-              <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1.5">
+              <label className="block text-xs font-bold text-ink uppercase mb-1.5">
                 Kitchen KOT Printer Mapping
               </label>
               {isConnected && printers.length > 0 ? (

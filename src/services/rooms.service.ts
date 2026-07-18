@@ -240,6 +240,80 @@ export async function addRoomServiceCharge(
 }
 
 /**
+ * Adds multiple room service charges (food/drink items) to an active room stay in a single transaction.
+ */
+export async function addRoomServiceCharges(
+  roomStayId: string,
+  charges: Array<{ menuItemId: string; qty: number }>,
+  userId: string
+): Promise<any> {
+  const profile = await superuserPrisma.profile.findUnique({
+    where: { id: userId }
+  });
+  if (!profile) {
+    throw new Error("User not found");
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    await setSessionContext(tx, profile.role, userId);
+
+    const roomStay = await tx.roomStay.findUnique({
+      where: { id: roomStayId }
+    });
+    if (!roomStay) {
+      throw new Error("Room stay not found");
+    }
+    if (roomStay.status !== RoomStayStatus.ACTIVE) {
+      throw new Error("Cannot add charges to a non-active room stay");
+    }
+
+    // Optimistic lock roomStay version
+    const updatedStay = await tx.roomStay.updateMany({
+      where: {
+        id: roomStayId,
+        version: roomStay.version
+      },
+      data: {
+        version: { increment: 1 }
+      }
+    });
+    if (updatedStay.count === 0) {
+      throw new RoomConflictError("Room stay was updated by another session");
+    }
+
+    const createdItems = [];
+
+    for (const charge of charges) {
+      const { menuItemId, qty } = charge;
+      const menu = await tx.menuItem.findUnique({
+        where: { id: menuItemId }
+      });
+      if (!menu) {
+        throw new Error(`Menu item not found: ${menuItemId}`);
+      }
+
+      // Deduct raw ingredients atomically
+      const deductions = await deductForSale(menuItemId, qty, undefined, tx);
+
+      const orderItem = await tx.orderItem.create({
+        data: {
+          roomStayId,
+          menuItemId,
+          qty,
+          unitPrice: menu.price,
+          rawDeductions: deductions,
+        }
+      });
+      createdItems.push(orderItem);
+    }
+
+    await logAction(userId, "ADD_ROOM_SERVICE_CHARGES", "RoomStay", roomStayId, { charges }, tx);
+
+    return createdItems;
+  });
+}
+
+/**
  * Direct editing of stay nights/checkout dates prior to final checkout.
  */
 export async function updateRoomStayDates(

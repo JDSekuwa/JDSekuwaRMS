@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/ui/page-header";
@@ -24,7 +24,8 @@ import {
   Clock,
   Star,
   Trash2,
-  XCircle
+  XCircle,
+  Printer
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -111,10 +112,19 @@ export default function RoomsPage() {
   const [selectedCatId, setSelectedCatId] = useState("ALL");
   const [chargeQty, setChargeQty] = useState(1);
   const [chargeError, setChargeError] = useState<string | null>(null);
+  const [localCart, setLocalCart] = useState<Array<{ menuItemId: string; name: string; price: number; qty: number }>>([]);
 
   // Form states — Checkout
   const [paymentType, setPaymentType] = useState<"CASH" | "CARD" | "CREDIT">("CASH");
   const [checkOutError, setCheckOutError] = useState<string | null>(null);
+
+  // Settings configs
+  const [restaurantName, setRestaurantName] = useState("JD Sekuwa House");
+  const [restaurantAddress, setRestaurantAddress] = useState("Lalitpur, Nepal");
+  const [restaurantEmail, setRestaurantEmail] = useState("");
+  const [welcomeNote, setWelcomeNote] = useState("");
+  const [contactPhone, setContactPhone] = useState("+977-1-4XXXXXX");
+  const [thankYouNote, setThankYouNote] = useState("Thank you for dining with us!");
 
   // Manage Rooms states
   const [manageRoomsOpen, setManageRoomsOpen] = useState(false);
@@ -166,6 +176,33 @@ export default function RoomsPage() {
     }
   });
 
+  // Sync selectedRoom with fresh rooms query data (e.g. after mutations update database)
+  useEffect(() => {
+    if (selectedRoom) {
+      const updated = rooms.find((r) => r.id === selectedRoom.id);
+      if (updated) {
+        setSelectedRoom(updated);
+      }
+    }
+  }, [rooms, selectedRoom]);
+
+  // Load configuration from local storage on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("jd_sekuwa_printers");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.restaurantName) setRestaurantName(parsed.restaurantName);
+        if (parsed.restaurantAddress) setRestaurantAddress(parsed.restaurantAddress);
+        if (parsed.restaurantEmail) setRestaurantEmail(parsed.restaurantEmail);
+        if (parsed.welcomeNote) setWelcomeNote(parsed.welcomeNote);
+        if (parsed.contactPhone) setContactPhone(parsed.contactPhone);
+        if (parsed.thankYouNote) setThankYouNote(parsed.thankYouNote);
+      } catch (e) {}
+    }
+  }, []);
+
   const { data: menuData } = useQuery<MenuData>({
     queryKey: ["pos-menu"],
     queryFn: async () => {
@@ -201,25 +238,26 @@ export default function RoomsPage() {
   });
 
   const chargeMutation = useMutation({
-    mutationFn: async ({ stayId, menuItemId, qty }: { stayId: string; menuItemId: string; qty: number }) => {
+    mutationFn: async ({ stayId, charges }: { stayId: string; charges: Array<{ menuItemId: string; qty: number }> }) => {
       const res = await fetch(`/api/rooms/stay/${stayId}/charge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ menuItemId, qty })
+        body: JSON.stringify(charges)
       });
-      if (!res.ok) { const errData = await res.json(); throw new Error(errData.error || "Failed to post charge"); }
+      if (!res.ok) { const errData = await res.json(); throw new Error(errData.error || "Failed to post charges"); }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rooms"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       setChargeQty(1); setChargeError(null);
+      setLocalCart([]);
       if (selectedRoom) {
         const updated = rooms.find((r) => r.id === selectedRoom.id);
         if (updated) setSelectedRoom(updated);
       }
     },
-    onError: (err: any) => setChargeError(err.message || "Failed to post charge")
+    onError: (err: any) => setChargeError(err.message || "Failed to post charges")
   });
 
   const checkOutMutation = useMutation({
@@ -325,11 +363,41 @@ export default function RoomsPage() {
     });
   };
 
-  const handlePostCharge = (menuItemId: string) => {
+  const handleAddToLocalCart = (menuItemId: string, itemName: string, itemPrice: number) => {
     if (!selectedRoom?.activeStay) return;
     if (chargeQty <= 0) { setChargeError("Please specify a positive quantity."); return; }
     setChargeError(null);
-    chargeMutation.mutate({ stayId: selectedRoom.activeStay.id, menuItemId, qty: chargeQty });
+
+    const existing = localCart.find((item) => item.menuItemId === menuItemId);
+    if (existing) {
+      setLocalCart(
+        localCart.map((item) =>
+          item.menuItemId === menuItemId ? { ...item, qty: item.qty + chargeQty } : item
+        )
+      );
+    } else {
+      setLocalCart([
+        ...localCart,
+        { menuItemId, name: itemName, price: itemPrice, qty: chargeQty }
+      ]);
+    }
+
+    setChargeQty(1); // Reset stepper quantity
+  };
+
+  const handleSaveCharges = () => {
+    if (!selectedRoom?.activeStay || localCart.length === 0) return;
+    setChargeError(null);
+
+    const chargesPayload = localCart.map((item) => ({
+      menuItemId: item.menuItemId,
+      qty: item.qty
+    }));
+
+    chargeMutation.mutate({
+      stayId: selectedRoom.activeStay.id,
+      charges: chargesPayload
+    });
   };
 
   const handleCheckOutSubmit = (e: React.FormEvent) => {
@@ -337,6 +405,158 @@ export default function RoomsPage() {
     if (!selectedRoom?.activeStay) return;
     setCheckOutError(null);
     checkOutMutation.mutate({ stayId: selectedRoom.activeStay.id, paymentType });
+  };
+
+  const handlePrintRoomInvoice = () => {
+    if (!selectedRoom?.activeStay) return;
+
+    const stay = selectedRoom.activeStay;
+    const lodgingTotal = (selectedRoom.nightlyRate || 0) * stay.numNights;
+    const serviceTotal = stay.orderItems.reduce((s, i) => s + i.total, 0);
+    const subtotal = lodgingTotal + serviceTotal;
+    const discountVal = 0;
+    const totalVal = subtotal - discountVal;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Please allow popups to print the invoice.");
+      return;
+    }
+
+    const itemsHtml = stay.orderItems.map((item) => `
+      <div class="justify-between py-1 text-ink-muted">
+        <span>${item.name} x${item.qty}</span>
+        <span>Rs. ${item.total.toFixed(2)}</span>
+      </div>
+    `).join("");
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Room Invoice Print</title>
+          <style>
+            body {
+              font-family: monospace;
+              padding: 20px;
+              font-size: 14px;
+              color: black;
+            }
+            .text-center { text-align: center; }
+            .justify-between { display: flex; justify-content: space-between; }
+            .font-bold { font-weight: bold; }
+            .border-b { border-bottom: 1px solid #ccc; }
+            .border-t { border-top: 1px solid #ccc; }
+            .border-dashed { border-style: dashed; }
+            .py-1 { padding-top: 4px; padding-bottom: 4px; }
+            .pt-1.5 { padding-top: 6px; }
+            .space-y-1 > * + * { margin-top: 4px; }
+            .space-y-4 > * + * { margin-top: 16px; }
+            .text-sm { font-size: 14px; }
+            .text-[10px] { font-size: 10px; }
+            .text-ink-muted { color: #666; }
+            .font-extrabold { font-weight: 800; }
+            .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .max-w-[180px] { max-width: 180px; }
+            .w-full { width: 100%; }
+          </style>
+        </head>
+        <body>
+          <div class="space-y-4">
+            <div class="text-center space-y-1">
+              <h3 class="font-extrabold text-sm" style="margin: 0; font-size: 16px;">${restaurantName.toUpperCase()}</h3>
+              <p class="text-ink-muted text-[10px]" style="margin: 4px 0 0 0;">${restaurantAddress}</p>
+              <p class="text-ink-muted text-[10px]" style="margin: 2px 0 0 0;">Tel: ${contactPhone}</p>
+              ${restaurantEmail ? `<p class="text-ink-muted text-[10px]" style="margin: 2px 0 0 0;">Email: ${restaurantEmail}</p>` : ''}
+              <div class="border-b border-dashed py-1"></div>
+            </div>
+
+            <div class="space-y-1 text-ink-muted">
+              <div class="justify-between">
+                <span>Stay ID:</span>
+                <span class="font-semibold text-ink">${stay.id.slice(0, 8)}</span>
+              </div>
+              <div class="justify-between">
+                <span>Room:</span>
+                <span class="font-semibold text-ink">${selectedRoom.name}</span>
+              </div>
+              <div class="justify-between">
+                <span>Guest Name:</span>
+                <span class="font-semibold text-ink">${stay.guestName}</span>
+              </div>
+              <div class="justify-between">
+                <span>Phone:</span>
+                <span class="font-semibold text-ink">${stay.phone}</span>
+              </div>
+              <div class="justify-between">
+                <span>Check-in:</span>
+                <span>${new Date(stay.checkIn).toLocaleString()}</span>
+              </div>
+              <div class="justify-between">
+                <span>Check-out Date:</span>
+                <span>${new Date().toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div class="border-b border-dashed"></div>
+
+            <div class="space-y-1">
+              <div class="font-bold text-ink justify-between">
+                <span>Lodging Detail</span>
+                <span>Amount</span>
+              </div>
+              <div class="justify-between text-ink-muted py-1">
+                <span>Rate: Rs. ${selectedRoom.nightlyRate?.toFixed(2)} x ${stay.numNights} Night(s)</span>
+                <span>Rs. ${lodgingTotal.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div class="border-b border-dashed"></div>
+
+            <div class="space-y-1">
+              <div class="font-bold text-ink justify-between">
+                <span>Food & Service Charges</span>
+                <span>Amount</span>
+              </div>
+              ${itemsHtml || '<div class="text-ink-muted italic py-1 text-center">No service charges</div>'}
+            </div>
+
+            <div class="border-b border-dashed"></div>
+
+            <div class="space-y-1.5 text-ink">
+              <div class="justify-between">
+                <span>Subtotal</span>
+                <span>Rs. ${subtotal.toFixed(2)}</span>
+              </div>
+              <div class="justify-between text-ink-muted">
+                <span>Discount</span>
+                <span>Rs. -${discountVal.toFixed(2)}</span>
+              </div>
+              <div class="justify-between font-bold text-sm border-t border-dashed pt-1.5" style="font-size: 15px;">
+                <span>Total Bill</span>
+                <span>Rs. ${totalVal.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div class="border-b border-dashed"></div>
+            ${welcomeNote ? `
+            <div class="text-center text-[10px] text-ink-muted italic pt-1" style="margin-bottom: 4px;">
+              ${welcomeNote}
+            </div>
+            ` : ''}
+            <div class="text-center text-[10px] text-ink-muted italic pt-1">
+              ${thankYouNote}
+            </div>
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+              window.close();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   const menuItems = menuData?.menuItems || [];
@@ -467,8 +687,8 @@ export default function RoomsPage() {
                 <div className={cn(
                   "absolute inset-0 transition-opacity duration-300",
                   isOccupied
-                    ? "bg-gradient-to-t from-black/95 via-black/70 to-primary/20"
-                    : "bg-gradient-to-t from-black/90 via-black/55 to-black/10"
+                    ? "bg-gradient-to-t from-black/100 via-black/80 to-primary/20"
+                    : "bg-gradient-to-t from-black/95 via-black/70 to-black/20"
                 )} />
 
                 {/* Status ring */}
@@ -510,26 +730,26 @@ export default function RoomsPage() {
                   {stay ? (
                     <div className="space-y-2">
                       {/* Guest name */}
-                      <p className="text-white font-extrabold text-base leading-tight truncate">{stay.guestName}</p>
+                      <p className="text-white font-extrabold text-base leading-tight truncate text-shadow-readability">{stay.guestName}</p>
 
                       {/* Metadata row */}
                       <div className="flex flex-wrap gap-x-3 gap-y-1">
-                        <span className="flex items-center gap-1 text-white/60 text-[9px] font-bold">
-                          <Phone className="h-2.5 w-2.5" /> {stay.phone}
+                        <span className="flex items-center gap-1 text-white text-[9px] font-black text-shadow-readability">
+                          <Phone className="h-2.5 w-2.5 text-white/80" /> {stay.phone}
                         </span>
-                        <span className="flex items-center gap-1 text-white/60 text-[9px] font-bold">
-                          <Users className="h-2.5 w-2.5" /> {stay.numGuests} Guest{stay.numGuests > 1 ? "s" : ""}
+                        <span className="flex items-center gap-1 text-white text-[9px] font-black text-shadow-readability">
+                          <Users className="h-2.5 w-2.5 text-white/80" /> {stay.numGuests} Guest{stay.numGuests > 1 ? "s" : ""}
                         </span>
-                        <span className="flex items-center gap-1 text-white/60 text-[9px] font-bold">
-                          <Clock className="h-2.5 w-2.5" /> {stay.numNights} Night{stay.numNights > 1 ? "s" : ""}
+                        <span className="flex items-center gap-1 text-white text-[9px] font-black text-shadow-readability">
+                          <Clock className="h-2.5 w-2.5 text-white/80" /> {stay.numNights} Night{stay.numNights > 1 ? "s" : ""}
                         </span>
                       </div>
 
                       {/* Total due */}
                       {stay.stayTotal !== null && (
                         <div className="flex items-center justify-between pt-1">
-                          <span className="text-white/50 text-[9px] font-bold uppercase">Total Due</span>
-                          <span className="text-white font-black text-lg tabular-nums tracking-tight drop-shadow-sm">
+                          <span className="text-white/80 text-[9px] font-black uppercase text-shadow-readability">Total Due</span>
+                          <span className="text-white font-black text-lg tabular-nums tracking-tight text-shadow-readability">
                             Rs. {stay.stayTotal.toLocaleString(undefined, { minimumFractionDigits: 0 })}
                           </span>
                         </div>
@@ -537,12 +757,12 @@ export default function RoomsPage() {
                     </div>
                   ) : (
                     <div className="space-y-1.5 pb-2">
-                      <p className="text-white/40 text-[10px] font-medium italic">No active guests</p>
+                      <p className="text-white/60 text-[10px] font-black italic text-shadow-readability">No active guests</p>
                       {room.nightlyRate !== null && (
                         <div className="flex items-center gap-1.5">
-                          <Star className="h-3 w-3 text-warning/70" />
-                          <span className="text-white/70 text-sm font-extrabold">
-                            Rs. {room.nightlyRate.toLocaleString()} <span className="text-white/40 text-[10px] font-bold">/ night</span>
+                          <Star className="h-3 w-3 text-warning/90 drop-shadow-md" />
+                          <span className="text-white text-sm font-black text-shadow-readability">
+                            Rs. {room.nightlyRate.toLocaleString()} <span className="text-white/70 text-[10px] font-bold text-shadow-readability">/ night</span>
                           </span>
                         </div>
                       )}
@@ -553,7 +773,7 @@ export default function RoomsPage() {
                 {/* Nightly rate badge (occupied view) */}
                 {isOccupied && room.nightlyRate !== null && (
                   <div className="relative z-10 px-4 pb-1">
-                    <span className="text-white/35 text-[9px] font-bold">
+                    <span className="text-white text-[9px] font-black text-shadow-readability">
                       Rs. {room.nightlyRate.toLocaleString()} / night
                     </span>
                   </div>
@@ -923,16 +1143,27 @@ export default function RoomsPage() {
       ══════════════════════════════════════════════════════════════ */}
       <Modal
         isOpen={chargeOpen}
-        onClose={() => { setChargeOpen(false); setSelectedRoom(null); setChargeError(null); }}
+        onClose={() => { setChargeOpen(false); setSelectedRoom(null); setChargeError(null); setLocalCart([]); }}
         title={`Add Service Charge — ${selectedRoom?.name || ""}`}
         className="max-w-2xl"
         footer={
-          <button
-            onClick={() => setChargeOpen(false)}
-            className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover transition-colors"
-          >
-            Done & Close
-          </button>
+          localCart.length > 0 ? (
+            <button
+              onClick={handleSaveCharges}
+              disabled={chargeMutation.isPending}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {chargeMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Save Charges</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setChargeOpen(false)}
+              className="px-4 py-2 bg-surface-sunken hover:bg-border text-ink text-xs font-semibold rounded-control transition-colors"
+            >
+              Close Panel
+            </button>
+          )
         }
       >
         <div className="space-y-5">
@@ -984,7 +1215,7 @@ export default function RoomsPage() {
                 {filteredMenuItems.map((item) => (
                   <div
                     key={item.id}
-                    onClick={() => handlePostCharge(item.id)}
+                    onClick={() => handleAddToLocalCart(item.id, item.name, parseFloat(item.price))}
                     className="rounded-control border border-border p-2.5 bg-card hover:bg-primary/5 hover:border-primary/40 cursor-pointer flex flex-col justify-between h-[72px] transition-all relative select-none group/item"
                   >
                     <h5 className="font-bold text-ink text-[11px] line-clamp-2 leading-tight group-hover/item:text-primary transition-colors">{item.name}</h5>
@@ -1000,6 +1231,68 @@ export default function RoomsPage() {
 
           {chargeError && (
             <div className="rounded-control border border-danger/25 bg-danger/10 p-2 text-xs text-danger">{chargeError}</div>
+          )}
+
+          {/* Local Cart Buffer (Pending Charges) */}
+          {localCart.length > 0 && (
+            <div className="border border-primary/20 bg-primary/5 rounded-control p-3 space-y-2">
+              <div className="flex justify-between items-center select-none">
+                <h4 className="text-[10px] font-black text-primary uppercase tracking-wider">Pending Service Charges (To Add)</h4>
+                <button
+                  type="button"
+                  onClick={() => setLocalCart([])}
+                  className="text-[9px] font-bold text-danger uppercase hover:underline"
+                >
+                  Clear All
+                </button>
+              </div>
+              <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1 scrollbar-thin">
+                {localCart.map((item) => (
+                  <div key={item.menuItemId} className="flex justify-between items-center text-xs font-mono">
+                    <span className="text-ink font-semibold">{item.name}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 bg-white border border-border rounded-control px-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLocalCart(
+                              localCart.map((i) =>
+                                i.menuItemId === item.menuItemId ? { ...i, qty: Math.max(1, i.qty - 1) } : i
+                              )
+                            );
+                          }}
+                          className="h-4 w-4 flex items-center justify-center text-ink-muted hover:text-primary"
+                        >
+                          <Minus className="h-2.5 w-2.5" />
+                        </button>
+                        <span className="text-[11px] font-bold text-ink w-4 text-center select-none">{item.qty}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLocalCart(
+                              localCart.map((i) =>
+                                i.menuItemId === item.menuItemId ? { ...i, qty: i.qty + 1 } : i
+                              )
+                            );
+                          }}
+                          className="h-4 w-4 flex items-center justify-center text-ink-muted hover:text-primary"
+                        >
+                          <Plus className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                      <span className="text-primary font-black min-w-[60px] text-right">Rs. {(item.price * item.qty).toFixed(0)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setLocalCart(localCart.filter((i) => i.menuItemId !== item.menuItemId))}
+                        className="text-danger hover:text-danger-hover pl-1 font-bold"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {/* Charged items summary */}
@@ -1053,7 +1346,17 @@ export default function RoomsPage() {
           <form id="checkout-form" onSubmit={handleCheckOutSubmit} className="space-y-5">
             {/* Bill summary card */}
             <div className="rounded-card border border-border bg-surface-sunken p-4 space-y-3">
-              <h4 className="text-[10px] font-black text-ink-muted uppercase tracking-wider">Stay Billing Summary</h4>
+              <div className="flex justify-between items-center select-none">
+                <h4 className="text-[10px] font-black text-ink-muted uppercase tracking-wider">Stay Billing Summary</h4>
+                <button
+                  type="button"
+                  onClick={handlePrintRoomInvoice}
+                  className="flex items-center gap-1.5 text-[10px] font-bold text-primary hover:underline"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>Print Invoice</span>
+                </button>
+              </div>
               <div className="space-y-2 text-xs font-mono text-ink-muted">
                 <div className="flex justify-between">
                   <span>Guest:</span>

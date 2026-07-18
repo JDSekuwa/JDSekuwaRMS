@@ -7,6 +7,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal-sheet";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { Plus, Filter, Loader2, Calendar, ClipboardList } from "lucide-react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 interface RawItem {
   id: string;
@@ -377,19 +378,16 @@ export default function PurchasesPage() {
             <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
               Raw Ingredient
             </label>
-            <select
+            <SearchableSelect
               value={selectedRawItemId}
-              onChange={(e) => setSelectedRawItemId(e.target.value)}
+              onChange={(val) => setSelectedRawItemId(val)}
+              options={rawItems.map((item) => ({
+                id: item.id,
+                label: `${item.name} (${item.unit})`
+              }))}
+              placeholder="-- Choose Raw Ingredient --"
               required
-              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink bg-white outline-none focus:border-primary"
-            >
-              <option value="">-- Choose Raw Ingredient --</option>
-              {rawItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} ({item.unit})
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

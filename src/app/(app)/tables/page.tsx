@@ -157,9 +157,13 @@ export default function TablesPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
 
-  // Printer mapping configurations & hooks
   const [kitchenPrinter, setKitchenPrinter] = useState("");
   const [receptionPrinter, setReceptionPrinter] = useState("");
+  const [restaurantName, setRestaurantName] = useState("JD Sekuwa House");
+  const [restaurantAddress, setRestaurantAddress] = useState("Lalitpur, Nepal");
+  const [restaurantEmail, setRestaurantEmail] = useState("");
+  const [welcomeNote, setWelcomeNote] = useState("");
+  const [thankYouNote, setThankYouNote] = useState("Thank you for dining with us!");
 
   const { isConnected: isQzConnected, printKot, printReceipt } = useQzTray();
 
@@ -208,6 +212,11 @@ export default function TablesPage() {
         const parsed = JSON.parse(saved);
         if (parsed.kitchenPrinter) setKitchenPrinter(parsed.kitchenPrinter);
         if (parsed.receptionPrinter) setReceptionPrinter(parsed.receptionPrinter);
+        if (parsed.restaurantName) setRestaurantName(parsed.restaurantName);
+        if (parsed.restaurantAddress) setRestaurantAddress(parsed.restaurantAddress);
+        if (parsed.restaurantEmail) setRestaurantEmail(parsed.restaurantEmail);
+        if (parsed.welcomeNote) setWelcomeNote(parsed.welcomeNote);
+        if (parsed.thankYouNote) setThankYouNote(parsed.thankYouNote);
       } catch (e) {}
     }
   }, []);
@@ -843,10 +852,10 @@ export default function TablesPage() {
                 <div className={cn(
                   "absolute inset-0 transition-opacity duration-300",
                   isOccupied
-                    ? "bg-gradient-to-t from-black/90 via-black/60 to-primary/25"
+                    ? "bg-gradient-to-t from-black/100 via-black/75 to-primary/20"
                     : isReserved
-                    ? "bg-gradient-to-t from-black/90 via-black/60 to-warning/25"
-                    : "bg-gradient-to-t from-black/85 via-black/50 to-black/20 group-hover:from-black/80"
+                    ? "bg-gradient-to-t from-black/100 via-black/75 to-warning/20"
+                    : "bg-gradient-to-t from-black/95 via-black/60 to-black/20 group-hover:from-black/90"
                 )} />
 
                 {/* Status glow ring on border */}
@@ -901,11 +910,11 @@ export default function TablesPage() {
                 {/* BOTTOM ROW — tag + running total */}
                 <div className="absolute bottom-0 left-0 right-0 p-3 z-10 space-y-1">
                   {table.currentTag ? (
-                    <p className="text-[10px] text-white/70 font-bold uppercase tracking-widest truncate" title={table.currentTag}>
+                    <p className="text-[10px] text-white font-extrabold uppercase tracking-widest truncate text-shadow-readability" title={table.currentTag}>
                       {table.currentTag}
                     </p>
                   ) : (
-                    <p className="text-[9px] text-white/35 font-medium italic">
+                    <p className="text-[9px] text-white/80 font-black italic text-shadow-readability">
                       {isVacant ? "Tap to open order" : "No active tag"}
                     </p>
                   )}
@@ -913,13 +922,13 @@ export default function TablesPage() {
                   <div className="flex items-center justify-between">
                     {isOccupied && table.openOrderTotal > 0 ? (
                       <>
-                        <span className="text-[9px] text-white/50 font-bold uppercase">Running Bill</span>
-                        <span className="text-base font-black text-white tabular-nums tracking-tight drop-shadow-sm">
+                        <span className="text-[9px] text-white/90 font-black uppercase text-shadow-readability">Running Bill</span>
+                        <span className="text-base font-black text-white tabular-nums tracking-tight text-shadow-readability">
                           Rs. {Number(table.openOrderTotal).toLocaleString()}
                         </span>
                       </>
                     ) : (
-                      <span className="text-[9px] text-white/40 font-bold">
+                      <span className="text-[9px] text-white/75 font-black text-shadow-readability">
                         {isVacant ? "No active bill" : isReserved ? "Held for reservation" : ""}
                       </span>
                     )}
@@ -1825,8 +1834,9 @@ export default function TablesPage() {
             {/* Structured Receipt Layout */}
             <div id="printable-receipt" className="border border-border rounded-card bg-surface-sunken p-5 font-mono text-xs space-y-4">
               <div className="text-center space-y-1">
-                <h3 className="font-extrabold text-sm text-ink">JD SEKUWA HOUSE</h3>
-                <p className="text-ink-muted text-[10px]">Lalitpur, Nepal</p>
+                <h3 className="font-extrabold text-sm text-ink uppercase">{restaurantName}</h3>
+                <p className="text-ink-muted text-[10px]">{restaurantAddress}</p>
+                {restaurantEmail && <p className="text-ink-muted text-[10px]">Email: {restaurantEmail}</p>}
                 <div className="border-b border-dashed border-border py-1" />
               </div>
 
@@ -1883,6 +1893,16 @@ export default function TablesPage() {
                   <span>Total Settled</span>
                   <span>Rs. {receipt.total.toFixed(2)}</span>
                 </div>
+              </div>
+
+              <div className="border-b border-dashed border-border" />
+              {welcomeNote && (
+                <div className="text-center text-[10px] text-ink-muted italic pt-1 select-none">
+                  {welcomeNote}
+                </div>
+              )}
+              <div className="text-center text-[10px] text-ink-muted italic pt-1 select-none">
+                {thankYouNote}
               </div>
             </div>
 

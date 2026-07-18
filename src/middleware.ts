@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -52,6 +52,30 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
+    // --- Session Inactivity Check (10 Minutes) ---
+    const lastActivityStr = request.cookies.get("rms_last_activity")?.value;
+    const now = Date.now();
+    const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+
+    if (!lastActivityStr || now - parseInt(lastActivityStr) > INACTIVITY_TIMEOUT) {
+      // Session expired due to inactivity
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("redirect", path);
+      url.searchParams.set("message", "Session expired due to inactivity.");
+
+      const redirectResponse = NextResponse.redirect(url);
+
+      // Clean up Supabase auth cookies and the inactivity cookie
+      for (const cookie of request.cookies.getAll()) {
+        if (cookie.name.startsWith("sb-") || cookie.name === "rms_last_activity") {
+          redirectResponse.cookies.set(cookie.name, "", { maxAge: -1, path: "/" });
+        }
+      }
+
+      return redirectResponse;
+    }
+
     // Role-based pre-filtering (fast routing pre-filter)
     const role = user.app_metadata?.role as string | undefined;
 
@@ -80,6 +104,14 @@ export async function proxy(request: NextRequest) {
         return NextResponse.redirect(url);
       }
     }
+
+    // Active session: extend/refresh the activity cookie
+    response.cookies.set("rms_last_activity", now.toString(), {
+      maxAge: 600, // 10 minutes in seconds
+      path: "/",
+      httpOnly: false, // Let client read/write it
+      sameSite: "lax",
+    });
   }
 
   return response;

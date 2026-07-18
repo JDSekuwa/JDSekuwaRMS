@@ -46,8 +46,8 @@ export function Modal({
       {/* Modal Dialog Content Container */}
       <div
         className={cn(
-          "relative w-full max-w-lg rounded-card bg-card border border-border text-card-foreground shadow-xl flex flex-col max-h-[85vh] animate-scale-in overflow-hidden z-10 bg-white dark:bg-card",
-          className
+          "relative w-full rounded-card bg-card border border-border text-card-foreground shadow-xl flex flex-col max-h-[85vh] animate-scale-in overflow-hidden z-10 bg-white dark:bg-card",
+          className || "max-w-lg"
         )}
       >
         {/* Header */}

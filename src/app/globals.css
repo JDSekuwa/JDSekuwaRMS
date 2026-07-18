@@ -260,6 +260,10 @@
   animation: status-soft-pulse 2.5s ease-in-out infinite;
 }
 
+.text-shadow-readability {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 1px 1px rgba(0, 0, 0, 0.95);
+}
+
 /* ═══════════════ Print Stylesheet ═══════════════ */
 @media print {
   @page {

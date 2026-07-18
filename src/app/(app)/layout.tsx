@@ -101,6 +101,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: 10000, // Refresh notifications every 10 seconds
   });
 
+  // Fetch current user profile dynamically to load dynamic avatar edits
+  const { data: currentUserProfile } = useQuery({
+    queryKey: ["current-user-profile"],
+    queryFn: async () => {
+      const res = await fetch("/api/users/me");
+      if (!res.ok) throw new Error("Failed to load current profile");
+      return res.json();
+    }
+  });
+
   if (loading) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background text-primary">
@@ -214,8 +224,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {sidebarExpanded && user && (
             <div className="flex items-center gap-2.5 px-3 py-2 overflow-hidden">
               <UserAvatar
-                name={userName}
-                imageUrl={user.user_metadata?.imageUrl}
+                name={currentUserProfile?.name || userName}
+                imageUrl={currentUserProfile?.imageUrl || user.user_metadata?.imageUrl}
                 className="h-8.5 w-8.5 shrink-0"
               />
               <div className="min-w-0">
@@ -234,8 +244,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {!sidebarExpanded && user && (
             <div className="flex justify-center py-1">
               <UserAvatar
-                name={userName}
-                imageUrl={user.user_metadata?.imageUrl}
+                name={currentUserProfile?.name || userName}
+                imageUrl={currentUserProfile?.imageUrl || user.user_metadata?.imageUrl}
                 className="h-8 w-8"
               />
             </div>
@@ -372,8 +382,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   {getRoleLabel(role)}
                 </span>
                 <UserAvatar
-                  name={userName}
-                  imageUrl={user.user_metadata?.imageUrl}
+                  name={currentUserProfile?.name || userName}
+                  imageUrl={currentUserProfile?.imageUrl || user.user_metadata?.imageUrl}
                   className="h-9 w-9 transition-transform hover:scale-105 duration-200 cursor-pointer"
                 />
               </div>

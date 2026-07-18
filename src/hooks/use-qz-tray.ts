@@ -117,6 +117,26 @@ export function useQzTray() {
       throw new Error("Printer bridge is not connected.");
     }
 
+    let address = "Lalitpur, Nepal";
+    let thankYou = "Thank you for dining with us!";
+    let restaurantName = "JD SEKUWA HOUSE";
+    let email = "";
+    let welcome = "";
+
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("jd_sekuwa_printers");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.restaurantAddress) address = parsed.restaurantAddress;
+          if (parsed.thankYouNote) thankYou = parsed.thankYouNote;
+          if (parsed.restaurantName) restaurantName = parsed.restaurantName.toUpperCase();
+          if (parsed.restaurantEmail) email = parsed.restaurantEmail;
+          if (parsed.welcomeNote) welcome = parsed.welcomeNote;
+        } catch (e) {}
+      }
+    }
+
     const config = qz.configs.create(printerName);
 
     // ESC/POS raw receipt layout
@@ -124,9 +144,10 @@ export function useQzTray() {
       "\x1B\x40",             // Initialize
       "\x1B\x61\x01",         // Align center
       "\x1D\x21\x11",         // Double size text
-      "JD SEKUWA HOUSE\n",
+      restaurantName + "\n",
       "\x1D\x21\x00",         // Normal size
-      "Lalitpur, Nepal\n",
+      address + "\n",
+      email ? `Email: ${email}\n` : "",
       "--------------------------------\n",
       "\x1B\x61\x00",         // Align left
       `Invoice ID: ${receipt.id.slice(0, 8)}\n`,
@@ -151,7 +172,8 @@ export function useQzTray() {
       `Total Settled:  Rs. ${receipt.total.toFixed(0)}\n`,
       "--------------------------------\n",
       "\x1B\x61\x01",         // Align center
-      "Thank you for dining with us!\n\n\n\n\n\x1D\x56\x41\x03" // Cut paper
+      welcome ? welcome + "\n" : "",
+      thankYou + "\n\n\n\n\n\x1D\x56\x41\x03" // Cut paper
     ];
 
     await qz.print(config, printData);

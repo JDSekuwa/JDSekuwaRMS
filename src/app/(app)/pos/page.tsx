@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { getMenuItemImage } from "@/lib/menu-images";
 import { Modal } from "@/components/ui/modal-sheet";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Plus, Minus, Trash2, ShoppingCart, Loader2, Printer, XCircle, AlertTriangle } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingCart, Loader2, Printer, XCircle, AlertTriangle, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Category {
@@ -73,6 +73,8 @@ export default function PosPage() {
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Receipt Modal State
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null);
@@ -80,6 +82,11 @@ export default function PosPage() {
 
   // Printer mapping configurations & hooks
   const [receptionPrinter, setReceptionPrinter] = useState("");
+  const [restaurantName, setRestaurantName] = useState("JD Sekuwa House");
+  const [restaurantAddress, setRestaurantAddress] = useState("Lalitpur, Nepal");
+  const [restaurantEmail, setRestaurantEmail] = useState("");
+  const [welcomeNote, setWelcomeNote] = useState("");
+  const [thankYouNote, setThankYouNote] = useState("Thank you for dining with us!");
 
   const { isConnected: isQzConnected, printReceipt } = useQzTray();
 
@@ -90,6 +97,11 @@ export default function PosPage() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed.receptionPrinter) setReceptionPrinter(parsed.receptionPrinter);
+        if (parsed.restaurantName) setRestaurantName(parsed.restaurantName);
+        if (parsed.restaurantAddress) setRestaurantAddress(parsed.restaurantAddress);
+        if (parsed.restaurantEmail) setRestaurantEmail(parsed.restaurantEmail);
+        if (parsed.welcomeNote) setWelcomeNote(parsed.welcomeNote);
+        if (parsed.thankYouNote) setThankYouNote(parsed.thankYouNote);
       } catch (e) {}
     }
   }, []);
@@ -293,11 +305,17 @@ export default function PosPage() {
   const categories = menuData?.categories || [];
   const menuItems = menuData?.menuItems || [];
 
-  // Filter items by category tab selection
+  // Filter items by category tab selection AND search query
   const filteredItems = menuItems.filter((item) => {
-    if (selectedCatId === "ALL") return true;
-    return item.categoryId === selectedCatId;
+    const matchesCategory = selectedCatId === "ALL" || item.categoryId === selectedCatId;
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
   });
+
+  const itemsPerPage = 9;
+  const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedItems = filteredItems.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <div className="space-y-6">
@@ -319,7 +337,7 @@ export default function PosPage() {
             {/* Category tabs scroll */}
             <div className="flex gap-2 overflow-x-auto pb-2 border-b border-border scrollbar-none">
               <button
-                onClick={() => setSelectedCatId("ALL")}
+                onClick={() => { setSelectedCatId("ALL"); setCurrentPage(1); }}
                 className={cn(
                   "px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors select-none",
                   selectedCatId === "ALL"
@@ -332,7 +350,7 @@ export default function PosPage() {
               {categories.map((cat) => (
                 <button
                   key={cat.id}
-                  onClick={() => setSelectedCatId(cat.id)}
+                  onClick={() => { setSelectedCatId(cat.id); setCurrentPage(1); }}
                   className={cn(
                     "px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors select-none",
                     selectedCatId === cat.id
@@ -345,9 +363,24 @@ export default function PosPage() {
               ))}
             </div>
 
+            {/* Search Input Bar */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search menu items..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full rounded-control border border-border px-3.5 py-2 pl-9 text-xs text-ink bg-white outline-none focus:border-primary placeholder:text-ink-muted/50"
+              />
+              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-ink-muted/50" />
+            </div>
+
             {/* Menu Items Grid */}
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-              {filteredItems.map((item) => {
+              {paginatedItems.map((item) => {
                 const inCart = cart.find((i) => i.menuItemId === item.id);
                 const categoryObj = categories.find((c) => c.id === item.categoryId);
                 const categoryName = categoryObj ? categoryObj.name : "";
@@ -412,6 +445,45 @@ export default function PosPage() {
                 );
               })}
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border pt-4 select-none">
+                <span className="text-[10px] font-bold text-ink-muted">
+                  Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredItems.length)} of {filteredItems.length} items
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="px-2.5 py-1 rounded-control bg-surface-sunken border border-border text-[10px] font-bold text-ink hover:bg-border disabled:opacity-50 transition-colors disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  {Array.from({ length: totalPages }, (_, idx) => idx + 1).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setCurrentPage(p)}
+                      className={cn(
+                        "h-6 w-6 rounded-control text-[10px] font-bold transition-colors",
+                        currentPage === p
+                          ? "bg-primary text-white font-black"
+                          : "bg-surface-sunken border border-border text-ink hover:bg-border"
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-2.5 py-1 rounded-control bg-surface-sunken border border-border text-[10px] font-bold text-ink hover:bg-border disabled:opacity-50 transition-colors disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* RIGHT: Active Order Cart Column */}
@@ -611,8 +683,9 @@ export default function PosPage() {
             {/* Structured Receipt Layout */}
             <div id="printable-receipt" className="border border-border rounded-card bg-surface-sunken p-5 font-mono text-xs space-y-4">
               <div className="text-center space-y-1">
-                <h3 className="font-extrabold text-sm text-ink">JD SEKUWA HOUSE</h3>
-                <p className="text-ink-muted text-[10px]">Lalitpur, Nepal</p>
+                <h3 className="font-extrabold text-sm text-ink uppercase">{restaurantName}</h3>
+                <p className="text-ink-muted text-[10px]">{restaurantAddress}</p>
+                {restaurantEmail && <p className="text-ink-muted text-[10px]">Email: {restaurantEmail}</p>}
                 <div className="border-b border-dashed border-border py-1" />
               </div>
 
@@ -683,6 +756,16 @@ export default function PosPage() {
                   <span>Total Bill</span>
                   <span>Rs. {receipt.total.toFixed(2)}</span>
                 </div>
+              </div>
+
+              <div className="border-b border-dashed border-border" />
+              {welcomeNote && (
+                <div className="text-center text-[10px] text-ink-muted italic pt-1 select-none">
+                  {welcomeNote}
+                </div>
+              )}
+              <div className="text-center text-[10px] text-ink-muted italic pt-1 select-none">
+                {thankYouNote}
               </div>
             </div>
 

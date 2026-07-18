@@ -46,7 +46,7 @@ async function main() {
   console.log("Seeding profiles and users...");
   for (const userSpec of USERS_TO_SEED) {
     console.log(`Creating Auth user for ${userSpec.email} as ${userSpec.role}...`);
-    
+
     // Create the user in Supabase Auth using the Admin API
     const { data: { user }, error } = await supabase.auth.admin.createUser({
       email: userSpec.email,

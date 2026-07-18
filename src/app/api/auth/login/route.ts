@@ -22,10 +22,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       user: data.user,
       session: data.session,
     });
+
+    response.cookies.set("rms_last_activity", Date.now().toString(), {
+      maxAge: 600, // 10 minutes
+      path: "/",
+      httpOnly: false, // Let client read/write it
+      sameSite: "lax",
+    });
+
+    return response;
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "Internal server error" },
