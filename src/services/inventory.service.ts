@@ -4,6 +4,21 @@ import { setSessionContext, getCachedProfile } from "./auth.service";
 import { logAction } from "./audit.service";
 import { InsufficientStockError } from "../lib/errors";
 
+/**
+ * Normalizes a raw item or menu item name by stripping common packaging words,
+ * unit suffixes, and non-alphanumeric characters so that names like
+ * "Canned Coca-Cola" and "Coca-Cola Can" resolve to the same key.
+ */
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(
+      /\b(canned|can|bottle|bottled|glass|pack|packed|plate|full|half|portion|pieces?|litres?|litres?|kg|kilogram|kilograms?)\b/gi,
+      ""
+    )
+    .replace(/[^a-z0-9]/gi, "");
+}
+
 export interface InventoryItem {
   id: string;
   name: string;
@@ -215,7 +230,25 @@ export async function computeCostPerUnit(menuItemId: string): Promise<number> {
   });
 
   if (!recipe) {
-    return 0;
+    // ── Fallback: name-matching for direct retail items (no explicit recipe) ──
+    const menuItem = await superuserPrisma.menuItem.findUnique({
+      where: { id: menuItemId },
+      select: { name: true },
+    });
+
+    if (!menuItem) return 0;
+
+    const normalizedMenuName = normalizeName(menuItem.name);
+
+    const allRawItems = await superuserPrisma.rawItem.findMany({
+      select: { id: true, name: true, costPrice: true },
+    });
+
+    const matchedRaw = allRawItems.find(
+      (r: { id: string; name: string; costPrice: any }) => normalizeName(r.name) === normalizedMenuName
+    );
+
+    return matchedRaw ? Number(matchedRaw.costPrice || 0) : 0;
   }
 
   let totalCost = 0;
@@ -268,7 +301,56 @@ export async function deductForSale(
   });
 
   if (!recipe) {
-    return []; // No recipe defined, no stock to deduct
+    // ── Fallback: name-matching for direct retail items (no explicit recipe) ──
+    // Fetch the menu item name so we can normalize it for matching.
+    const menuItem = await client.menuItem.findUnique({
+      where: { id: menuItemId },
+      select: { name: true },
+    });
+
+    if (!menuItem) return [];
+
+    const normalizedMenuName = normalizeName(menuItem.name);
+
+    // Fetch all raw items (excluding cost_price to respect RLS for WORKER role).
+    const allRawItems = await client.rawItem.findMany({
+      select: {
+        id: true,
+        name: true,
+        currentStock: true,
+      },
+    });
+
+    const matchedRaw = allRawItems.find(
+      (r: { id: string; name: string; currentStock: any }) => normalizeName(r.name) === normalizedMenuName
+    );
+
+    if (!matchedRaw) return []; // No matching raw item found — nothing to deduct
+
+    const deductQty =
+      overrideRawQty !== undefined && overrideRawQty !== null
+        ? overrideRawQty
+        : 1 * qty; // For PIECE items the deduct ratio is 1:1 per unit sold
+
+    const currentStock = Number(matchedRaw.currentStock);
+
+    if (currentStock - deductQty < 0) {
+      throw new InsufficientStockError(
+        `Insufficient stock for ingredient '${matchedRaw.name}'. Required: ${deductQty}, Available: ${currentStock}`
+      );
+    }
+
+    await client.rawItem.update({
+      where: { id: matchedRaw.id },
+      data: { currentStock: { decrement: deductQty } },
+      select: { id: true, currentStock: true },
+    });
+
+    return [{
+      rawItemId: matchedRaw.id,
+      name: matchedRaw.name,
+      qtyDeducted: deductQty,
+    }];
   }
 
   const deductions: Array<{ rawItemId: string; name: string; qtyDeducted: number }> = [];

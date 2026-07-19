@@ -89,6 +89,98 @@ export async function recordPurchase(
   }, { maxWait: 5000, timeout: 15000 });
 }
 
+export interface PurchaseInput {
+  rawItemId: string;
+  qty: number;
+  unitCost: number;
+}
+
+/**
+ * Records multiple raw item purchases, increments stock levels, and logs transactions.
+ * Gated to Admin/Super Admin only.
+ */
+export async function recordPurchases(
+  items: PurchaseInput[],
+  supplierName: string | null | undefined,
+  recordedById: string
+): Promise<any[]> {
+  const profile = await getCachedProfile(recordedById);
+  if (!profile) {
+    throw new Error("Recorder profile not found");
+  }
+
+  if (profile.role !== Role.ADMIN && profile.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenError("Only Admins and Super Admins can record purchases");
+  }
+
+  if (!items || items.length === 0) {
+    throw new Error("At least one purchase item is required");
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    await setSessionContext(tx, profile.role, recordedById);
+
+    const purchases = [];
+
+    for (const item of items) {
+      const { rawItemId, qty, unitCost } = item;
+      const totalCost = qty * unitCost;
+
+      // 1. Create the purchase log entry
+      const purchase = await tx.purchase.create({
+        data: {
+          rawItemId,
+          qty,
+          unitCost,
+          totalCost,
+          supplierName: supplierName || null,
+          recordedById
+        }
+      });
+
+      // 2. Fetch raw item to get current stock and verify existence
+      const rawItem = await tx.rawItem.findUnique({
+        where: { id: rawItemId },
+        select: { currentStock: true }
+      });
+      if (!rawItem) {
+        throw new Error("Raw ingredient not found");
+      }
+
+      // 3. Increment the stock level
+      await tx.rawItem.update({
+        where: { id: rawItemId },
+        data: {
+          currentStock: Number(rawItem.currentStock) + qty
+        },
+        select: {
+          id: true,
+          currentStock: true
+        }
+      });
+
+      // 4. Log the action to audit
+      await logAction(
+        recordedById,
+        "RECORD_PURCHASE",
+        "Purchase",
+        purchase.id,
+        { qty, unitCost, totalCost, rawItemId },
+        tx
+      );
+
+      purchases.push(purchase);
+    }
+
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
+    return purchases;
+  }, { maxWait: 5000, timeout: 15000 });
+}
+
+
 /**
  * Lists purchase records based on filters.
  * Gated to Admin/Super Admin only.

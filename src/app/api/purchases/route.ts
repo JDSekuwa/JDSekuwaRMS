@@ -1,15 +1,22 @@
 import { requireRole } from "@/services/auth.service";
-import { recordPurchase, listPurchases, PurchaseFilters } from "@/services/purchase.service";
+import { recordPurchase, recordPurchases, listPurchases, PurchaseFilters } from "@/services/purchase.service";
 import { Role } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { serverCache } from "@/lib/cache";
 
 const purchaseSchema = z.object({
-  rawItemId: z.string().uuid("Invalid rawItemId format"),
-  qty: z.number().positive("Quantity must be positive"),
-  unitCost: z.number().positive("Unit cost must be positive"),
+  rawItemId: z.string().uuid("Invalid rawItemId format").optional(),
+  qty: z.number().positive("Quantity must be positive").optional(),
+  unitCost: z.number().positive("Unit cost must be positive").optional(),
   supplierName: z.string().optional().nullable(),
+  items: z.array(
+    z.object({
+      rawItemId: z.string().uuid("Invalid rawItemId format"),
+      qty: z.number().positive("Quantity must be positive"),
+      unitCost: z.number().positive("Unit cost must be positive"),
+    })
+  ).optional(),
 });
 
 import { getPaginationParams, paginateResults } from "@/lib/pagination";
@@ -67,8 +74,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const { rawItemId, qty, unitCost, supplierName } = result.data;
-    const purchase = await recordPurchase(rawItemId, qty, unitCost, supplierName, profile.id);
+    const { rawItemId, qty, unitCost, supplierName, items } = result.data;
+    let purchase;
+    if (items && items.length > 0) {
+      purchase = await recordPurchases(items, supplierName, profile.id);
+    } else if (rawItemId && qty && unitCost) {
+      purchase = await recordPurchase(rawItemId, qty, unitCost, supplierName, profile.id);
+    } else {
+      return NextResponse.json(
+        { error: "Must provide either a single purchase rawItemId, qty, and unitCost, or a list of items." },
+        { status: 400 }
+      );
+    }
     
     // Invalidate caches
     serverCache.invalidate("inventory");

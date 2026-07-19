@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal-sheet";
 import { PaginationControls } from "@/components/ui/pagination-controls";
-import { Plus, Filter, Loader2, Calendar, ClipboardList } from "lucide-react";
+import { Plus, Filter, Loader2, Calendar, ClipboardList, Trash } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
 interface RawItem {
@@ -48,10 +48,13 @@ export default function PurchasesPage() {
 
   // Record Purchase Modal form states
   const [recordModalOpen, setRecordModalOpen] = useState(false);
-  const [selectedRawItemId, setSelectedRawItemId] = useState("");
-  const [qty, setQty] = useState("");
-  const [unitCost, setUnitCost] = useState("");
   const [supplierName, setSupplierName] = useState("");
+  interface PurchaseLine {
+    rawItemId: string;
+    qty: string;
+    unitCost: string;
+  }
+  const [lines, setLines] = useState<PurchaseLine[]>([{ rawItemId: "", qty: "", unitCost: "" }]);
   const [recordError, setRecordError] = useState<string | null>(null);
 
   // 1. Fetch raw items for select lists
@@ -105,9 +108,7 @@ export default function PurchasesPage() {
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       setRecordModalOpen(false);
-      setSelectedRawItemId("");
-      setQty("");
-      setUnitCost("");
+      setLines([{ rawItemId: "", qty: "", unitCost: "" }]);
       setSupplierName("");
       setRecordError(null);
     },
@@ -116,31 +117,59 @@ export default function PurchasesPage() {
     }
   });
 
+  const handleAddLine = () => {
+    setLines([...lines, { rawItemId: "", qty: "", unitCost: "" }]);
+  };
+
+  const handleRemoveLine = (index: number) => {
+    const updated = lines.filter((_, i) => i !== index);
+    setLines(updated);
+  };
+
+  const handleLineChange = (index: number, field: keyof PurchaseLine, value: string) => {
+    const updated = lines.map((line, i) => {
+      if (i === index) {
+        return { ...line, [field]: value };
+      }
+      return line;
+    });
+    setLines(updated);
+  };
+
   const handleRecordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedRawItemId) {
-      setRecordError("Please select a raw ingredient.");
-      return;
-    }
 
-    const qtyNum = parseFloat(qty);
-    const costNum = parseFloat(unitCost);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.rawItemId) {
+        setRecordError(`Please select a raw ingredient for line ${i + 1}.`);
+        return;
+      }
 
-    if (isNaN(qtyNum) || qtyNum <= 0) {
-      setRecordError("Quantity must be a positive number.");
-      return;
-    }
+      const qtyNum = parseFloat(line.qty);
+      const costNum = parseFloat(line.unitCost);
 
-    if (isNaN(costNum) || costNum <= 0) {
-      setRecordError("Unit cost must be a positive number.");
-      return;
+      if (isNaN(qtyNum) || qtyNum <= 0) {
+        setRecordError(`Quantity for line ${i + 1} must be a positive number.`);
+        return;
+      }
+
+      if (isNaN(costNum) || costNum <= 0) {
+        setRecordError(`Unit cost for line ${i + 1} must be a positive number.`);
+        return;
+      }
     }
 
     setRecordError(null);
+
+    const formattedItems = lines.map((line) => ({
+      rawItemId: line.rawItemId,
+      qty: parseFloat(line.qty),
+      unitCost: parseFloat(line.unitCost)
+    }));
+
     recordMutation.mutate({
-      rawItemId: selectedRawItemId,
-      qty: qtyNum,
-      unitCost: costNum,
+      items: formattedItems,
       supplierName: supplierName.trim() || undefined
     });
   };
@@ -347,17 +376,21 @@ export default function PurchasesPage() {
         isOpen={recordModalOpen}
         onClose={() => {
           setRecordModalOpen(false);
-          setSelectedRawItemId("");
-          setQty("");
-          setUnitCost("");
+          setLines([{ rawItemId: "", qty: "", unitCost: "" }]);
           setSupplierName("");
           setRecordError(null);
         }}
         title="Record Raw Purchase"
+        className="max-w-3xl"
         footer={
           <>
             <button
-              onClick={() => setRecordModalOpen(false)}
+              onClick={() => {
+                setRecordModalOpen(false);
+                setLines([{ rawItemId: "", qty: "", unitCost: "" }]);
+                setSupplierName("");
+                setRecordError(null);
+              }}
               className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
             >
               Cancel
@@ -377,53 +410,6 @@ export default function PurchasesPage() {
         <form id="purchase-form" onSubmit={handleRecordSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
-              Raw Ingredient
-            </label>
-            <SearchableSelect
-              value={selectedRawItemId}
-              onChange={(val) => setSelectedRawItemId(val)}
-              options={rawItems.map((item) => ({
-                id: item.id,
-                label: `${item.name} (${item.unit})`
-              }))}
-              placeholder="-- Choose Raw Ingredient --"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
-                Quantity Added
-              </label>
-              <input
-                type="number"
-                step="0.001"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                placeholder="e.g. 10.000"
-                required
-                className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
-                Unit Cost (NPR)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={unitCost}
-                onChange={(e) => setUnitCost(e.target.value)}
-                placeholder="e.g. 650.00"
-                required
-                className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
               Supplier Vendor Name
             </label>
             <input
@@ -431,8 +417,96 @@ export default function PurchasesPage() {
               value={supplierName}
               onChange={(e) => setSupplierName(e.target.value)}
               placeholder="e.g. Fresh Farms Poultry"
-              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+              className="w-full max-w-md rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
             />
+          </div>
+
+          <div className="border-t border-border/60 pt-4">
+            <div className="flex justify-between items-center mb-3">
+              <label className="block text-xs font-bold text-ink-muted uppercase">
+                Purchase Lines
+              </label>
+              <button
+                type="button"
+                onClick={handleAddLine}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-sunken hover:bg-border text-ink-muted text-xs font-semibold rounded-control shadow-sm border border-border transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5 text-primary" />
+                <span>Add Line</span>
+              </button>
+            </div>
+
+            {/* Desktop header titles */}
+            <div className="hidden md:grid md:grid-cols-12 gap-3 text-[10px] font-bold text-ink-muted uppercase mb-2 px-1">
+              <div className="col-span-6">Raw Ingredient</div>
+              <div className="col-span-3">Quantity Added</div>
+              <div className="col-span-2">Unit Cost (NPR)</div>
+              <div className="col-span-1 text-center">Action</div>
+            </div>
+
+            <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1 pb-24">
+              {lines.map((line, index) => (
+                <div key={index} className="grid grid-cols-12 gap-3 items-start border-b border-border/40 pb-3 md:pb-0 md:border-b-0">
+                  <div className="col-span-12 md:col-span-6">
+                    <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1 md:hidden">
+                      Raw Ingredient
+                    </label>
+                    <SearchableSelect
+                      value={line.rawItemId}
+                      onChange={(val) => handleLineChange(index, "rawItemId", val)}
+                      options={rawItems.map((item) => ({
+                        id: item.id,
+                        label: `${item.name} (${item.unit})`
+                      }))}
+                      placeholder="-- Choose Ingredient --"
+                      required
+                    />
+                  </div>
+                  <div className="col-span-6 md:col-span-3">
+                    <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1 md:hidden">
+                      Quantity Added
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={line.qty}
+                      onChange={(e) => handleLineChange(index, "qty", e.target.value)}
+                      placeholder="e.g. 10.000"
+                      required
+                      className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="col-span-6 md:col-span-2">
+                    <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1 md:hidden">
+                      Unit Cost
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={line.unitCost}
+                      onChange={(e) => handleLineChange(index, "unitCost", e.target.value)}
+                      placeholder="e.g. 650.00"
+                      required
+                      className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="col-span-12 md:col-span-1 text-right md:text-center pt-2 md:pt-1">
+                    {lines.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveLine(index)}
+                        className="text-danger hover:text-danger/80 p-1.5 rounded-control hover:bg-danger/10 transition-colors inline-flex items-center justify-center"
+                        title="Remove Line"
+                      >
+                        <Trash className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <div className="h-9 w-full hidden md:block"></div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {recordError && (
