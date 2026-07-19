@@ -26,13 +26,13 @@ function PrintReportContent() {
     enabled: tab === "daily",
   });
 
-  const trend = useQuery<any[]>({
-    queryKey: ["print-report-trend", startDate, endDate],
+  const cogs = useQuery<any>({
+    queryKey: ["print-report-cogs", startDate, endDate],
     queryFn: async () => {
-      const r = await fetch(`/api/reports/sales-trend?${params}`);
+      const r = await fetch(`/api/reports/cogs?${params}`);
       return r.json();
     },
-    enabled: tab === "trend",
+    enabled: tab === "cogs",
   });
 
   const items = useQuery<any>({
@@ -100,7 +100,7 @@ function PrintReportContent() {
 
   const isLoading =
     (tab === "daily" && daily.isLoading) ||
-    (tab === "trend" && trend.isLoading) ||
+    (tab === "cogs" && cogs.isLoading) ||
     (tab === "items" && items.isLoading) ||
     (tab === "purchases" && purchases.isLoading) ||
     (tab === "credit" && (credit.isLoading || creditDetails.isLoading)) ||
@@ -109,7 +109,7 @@ function PrintReportContent() {
 
   const dataReady =
     (tab === "daily" && daily.data) ||
-    (tab === "trend" && trend.data) ||
+    (tab === "cogs" && cogs.data) ||
     (tab === "items" && items.data) ||
     (tab === "purchases" && purchases.data) ||
     (tab === "credit" && credit.data && creditDetails.data) ||
@@ -139,7 +139,7 @@ function PrintReportContent() {
   // Define tab name titles
   const reportTitles: Record<string, string> = {
     daily: "Daily Sales Report",
-    trend: "Sales Trend Journal Report",
+    cogs: "Cost of Goods Sold (COGS) Report",
     items: "Item-Wise Performance Report",
     purchases: "Acquisition Purchase Cost Report",
     credit: "Accounts Receivable Credit Ledger",
@@ -226,30 +226,40 @@ function PrintReportContent() {
         </div>
       )}
 
-      {/* SALES TREND */}
-      {tab === "trend" && trend.data && (
-        <table className="w-full border-collapse border border-black text-xs text-left">
-          <thead>
-            <tr className="border-b border-black bg-gray-100 font-bold uppercase">
-              <th className="border-r border-black p-2">Month</th>
-              <th className="border-r border-black p-2 text-right">Quick Sell</th>
-              <th className="border-r border-black p-2 text-right">Table Dine-in</th>
-              <th className="border-r border-black p-2 text-right">Rooms Lodging</th>
-              <th className="p-2 text-right">Total Sales</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trend.data.map((point) => (
-              <tr key={point.date} className="border-b border-gray-300">
-                <td className="border-r border-black p-2 font-mono">{point.date}</td>
-                <td className="border-r border-black p-2 text-right font-mono">{rs(point.quickSales)}</td>
-                <td className="border-r border-black p-2 text-right font-mono">{rs(point.tableSales)}</td>
-                <td className="border-r border-black p-2 text-right font-mono">{rs(point.roomSales)}</td>
-                <td className="p-2 text-right font-mono font-bold">{rs(point.totalSales)}</td>
+      {/* COGS */}
+      {tab === "cogs" && cogs.data && (
+        <div className="space-y-6">
+          <div className="border border-black p-4 inline-block mb-4">
+            <span className="text-[9px] uppercase font-bold text-gray-500 block">Total Cost of Goods Sold (COGS)</span>
+            <span className="text-sm font-bold font-mono">{rs(cogs.data.totalCogs)}</span>
+          </div>
+
+          <table className="w-full border-collapse border border-black text-xs text-left">
+            <thead>
+              <tr className="border-b border-black bg-gray-100 font-bold uppercase">
+                <th className="border-r border-black p-2">Menu Item Name</th>
+                <th className="border-r border-black p-2 text-right">Unit Recipe Cost</th>
+                <th className="border-r border-black p-2 text-right">Quantity Sold</th>
+                <th className="p-2 text-right">Subtotal COGS (NPR)</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {cogs.data.items.map((item: any) => (
+                <tr key={item.menuItemId} className="border-b border-gray-300">
+                  <td className="border-r border-black p-2 font-semibold">{item.name}</td>
+                  <td className="border-r border-black p-2 text-right font-mono">{rs(item.costPerUnit)}</td>
+                  <td className="border-r border-black p-2 text-right font-mono">{item.qty}</td>
+                  <td className="p-2 text-right font-mono font-bold text-red-700">{rs(item.subtotalCogs)}</td>
+                </tr>
+              ))}
+              {cogs.data.items.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="py-8 text-center text-gray-500 italic">No items sold matching range.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {/* ITEM-WISE SALES */}
@@ -427,18 +437,22 @@ function PrintReportContent() {
       {/* PROFIT SUMMARY */}
       {tab === "profit" && profit.data && (
         <div className="space-y-6">
-          <div className="grid grid-cols-3 gap-4 mb-4 border border-black p-4">
+          <div className="grid grid-cols-4 gap-4 mb-4 border border-black p-4">
             <div>
               <span className="text-[9px] uppercase font-bold text-gray-500 block">Total Revenue</span>
               <span className="text-sm font-bold font-mono">{rs(profit.data.totalSales)}</span>
             </div>
             <div>
-              <span className="text-[9px] uppercase font-bold text-gray-500 block">Total Purchase Costs</span>
-              <span className="text-sm font-bold font-mono">{rs(profit.data.totalPurchaseCost)}</span>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Cost of Goods Sold (COGS)</span>
+              <span className="text-sm font-bold font-mono">{rs(profit.data.cogs)}</span>
             </div>
             <div>
               <span className="text-[9px] uppercase font-bold text-gray-500 block">Gross Profit</span>
               <span className="text-sm font-bold font-mono">{rs(profit.data.grossProfit)}</span>
+            </div>
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Net Profit</span>
+              <span className="text-sm font-bold font-mono">{rs(profit.data.netProfit)}</span>
             </div>
           </div>
 
@@ -459,19 +473,38 @@ function PrintReportContent() {
               <tr className="border-b border-gray-300">
                 <td className="border-r border-black p-2 font-semibold">Cost of Goods Sold (COGS)</td>
                 <td className="border-r border-black p-2 text-right font-mono">PL-COGS</td>
-                <td className="p-2 text-right font-mono font-bold text-red-700">- {rs(profit.data.totalPurchaseCost)}</td>
+                <td className="p-2 text-right font-mono font-bold text-red-700">- {rs(profit.data.cogs)}</td>
               </tr>
-              <tr className="border-b border-black bg-gray-55 font-bold">
+              <tr className="border-b border-black bg-gray-100 font-bold">
                 <td className="border-r border-black p-2">Gross Operating Profit</td>
                 <td className="border-r border-black p-2 text-right font-mono">PL-GPROFIT</td>
                 <td className="p-2 text-right font-mono">{rs(profit.data.grossProfit)}</td>
               </tr>
-              <tr className="font-bold bg-gray-200">
-                <td className="border-r border-black p-2">Operating Profit Margin (%)</td>
-                <td className="border-r border-black p-2 text-right font-mono">PL-MARGIN</td>
-                <td className="p-2 text-right font-mono">
+              <tr className="border-b border-gray-300">
+                <td className="border-r border-black p-2 font-semibold">Gross Margin (%)</td>
+                <td className="border-r border-black p-2 text-right font-mono">PL-GMARGIN</td>
+                <td className="p-2 text-right font-mono font-bold">
                   {profit.data.totalSales > 0
                     ? `${((profit.data.grossProfit / profit.data.totalSales) * 100).toFixed(2)}%`
+                    : "0.00%"}
+                </td>
+              </tr>
+              <tr className="border-b border-gray-300">
+                <td className="border-r border-black p-2 font-semibold">Operating Losses (Write-offs)</td>
+                <td className="border-r border-black p-2 text-right font-mono">PL-LOSS</td>
+                <td className="p-2 text-right font-mono font-bold text-red-700">- {rs(profit.data.writeOffs)}</td>
+              </tr>
+              <tr className="border-b border-black bg-gray-100 font-bold">
+                <td className="border-r border-black p-2">Net Profit</td>
+                <td className="border-r border-black p-2 text-right font-mono">PL-NPROFIT</td>
+                <td className="p-2 text-right font-mono font-bold">{rs(profit.data.netProfit)}</td>
+              </tr>
+              <tr className="font-bold bg-gray-200">
+                <td className="border-r border-black p-2">Net Margin (%)</td>
+                <td className="border-r border-black p-2 text-right font-mono">PL-NMARGIN</td>
+                <td className="p-2 text-right font-mono">
+                  {profit.data.totalSales > 0
+                    ? `${((profit.data.netProfit / profit.data.totalSales) * 100).toFixed(2)}%`
                     : "0.00%"}
                 </td>
               </tr>

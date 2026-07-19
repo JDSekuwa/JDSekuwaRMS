@@ -37,12 +37,17 @@ interface DailySales {
   totalSales: number;
 }
 
-interface TrendPoint {
-  date: string;
-  quickSales: number;
-  tableSales: number;
-  roomSales: number;
-  totalSales: number;
+interface CogsItem {
+  menuItemId: string;
+  name: string;
+  qty: number;
+  costPerUnit: number;
+  subtotalCogs: number;
+}
+
+interface CogsReport {
+  totalCogs: number;
+  items: CogsItem[];
 }
 
 interface ItemWise {
@@ -72,14 +77,17 @@ interface RoomOccupancy {
 interface ProfitSummary {
   totalSales: number;
   totalPurchaseCost: number;
+  cogs: number;
   grossProfit: number;
+  writeOffs: number;
+  netProfit: number;
 }
 
 /* ───────────────────────── active tab type ──────────────────────── */
 
 type ReportTab =
   | "daily"
-  | "trend"
+  | "cogs"
   | "items"
   | "purchases"
   | "credit"
@@ -88,7 +96,7 @@ type ReportTab =
 
 const TABS: { key: ReportTab; label: string; superOnly?: boolean }[] = [
   { key: "daily", label: "Daily Sales" },
-  { key: "trend", label: "Sales Trend" },
+  { key: "cogs", label: "COGS" },
   { key: "items", label: "Item-wise Sales" },
   { key: "purchases", label: "Purchase Costs" },
   { key: "credit", label: "Credit Outstanding" },
@@ -120,14 +128,14 @@ export default function ReportsPage() {
     enabled: activeTab === "daily",
   });
 
-  const trend = useQuery<TrendPoint[]>({
-    queryKey: ["report-trend", startDate, endDate],
+  const cogs = useQuery<CogsReport>({
+    queryKey: ["report-cogs", startDate, endDate],
     queryFn: async () => {
-      const r = await fetch(`/api/reports/sales-trend?${params}`);
+      const r = await fetch(`/api/reports/cogs?${params}`);
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
-    enabled: activeTab === "trend",
+    enabled: activeTab === "cogs",
   });
 
   const items = useQuery<ItemWise>({
@@ -203,7 +211,7 @@ export default function ReportsPage() {
   /* helpers to check loading for current tab */
   const isLoading =
     (activeTab === "daily" && daily.isLoading) ||
-    (activeTab === "trend" && trend.isLoading) ||
+    (activeTab === "cogs" && cogs.isLoading) ||
     (activeTab === "items" && items.isLoading) ||
     (activeTab === "purchases" && purchases.isLoading) ||
     (activeTab === "credit" && (credit.isLoading || creditDetails.isLoading)) ||
@@ -211,7 +219,7 @@ export default function ReportsPage() {
     (activeTab === "profit" && profit.isLoading);
 
   /* ── tab needs dates? ──────────────────────────────────────────── */
-  const needsDates = ["trend", "items", "purchases", "rooms", "profit"].includes(activeTab);
+  const needsDates = ["cogs", "items", "purchases", "rooms", "profit"].includes(activeTab);
 
   /* ── filtered tabs (hide profit for non-super) ─────────────────── */
   const visibleTabs = useMemo(
@@ -336,38 +344,40 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* ═══════════════ TAB: Sales Trend ═══════════════ */}
-      {activeTab === "trend" && trend.data && (
-        <div className="rounded-card border border-border bg-card p-6 space-y-4">
-          <h4 className="text-sm font-bold text-ink border-b border-border pb-2">Monthly Sales Journal Ledger — {startDate} to {endDate}</h4>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-ink">
-              <thead>
-                <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
-                  <th className="py-2.5 px-4">Month</th>
-                  <th className="py-2.5 px-4 text-right">Quick Sell (NPR)</th>
-                  <th className="py-2.5 px-4 text-right">Table Dine-in (NPR)</th>
-                  <th className="py-2.5 px-4 text-right">Rooms Lodging (NPR)</th>
-                  <th className="py-2.5 px-4 text-right">Total Sales (NPR)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {trend.data.map((point) => (
-                  <tr key={point.date} className="hover:bg-surface-sunken/30">
-                    <td className="py-2.5 px-4 font-mono font-semibold">{point.date}</td>
-                    <td className="py-2.5 px-4 text-right font-mono">{rs(point.quickSales)}</td>
-                    <td className="py-2.5 px-4 text-right font-mono">{rs(point.tableSales)}</td>
-                    <td className="py-2.5 px-4 text-right font-mono">{rs(point.roomSales)}</td>
-                    <td className="py-2.5 px-4 text-right font-mono font-bold text-primary">{rs(point.totalSales)}</td>
+      {/* ═══════════════ TAB: COGS ═══════════════ */}
+      {activeTab === "cogs" && cogs.data && (
+        <div className="space-y-5 animate-fade-in-up">
+          <StatCard title="Total Cost of Goods Sold (COGS)" value={rs(cogs.data.totalCogs)} icon={<Package />} />
+
+          <div className="rounded-card border border-border bg-card p-6 space-y-4">
+            <h4 className="text-sm font-bold text-ink border-b border-border pb-2">Cost of Goods Sold (COGS) Ledger — {startDate} to {endDate}</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-ink">
+                <thead>
+                  <tr className="border-b border-border text-ink-muted/80 text-left font-bold bg-surface-sunken/40">
+                    <th className="py-2.5 px-4">Menu Item Name</th>
+                    <th className="py-2.5 px-4 text-right">Unit Recipe Cost (NPR)</th>
+                    <th className="py-2.5 px-4 text-right">Quantity Sold</th>
+                    <th className="py-2.5 px-4 text-right">Subtotal COGS (NPR)</th>
                   </tr>
-                ))}
-                {trend.data.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-ink-muted italic">No monthly sales log found in range.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {cogs.data.items.map((item) => (
+                    <tr key={item.menuItemId} className="hover:bg-surface-sunken/30">
+                      <td className="py-2.5 px-4 font-semibold">{item.name}</td>
+                      <td className="py-2.5 px-4 text-right font-mono">{rs(item.costPerUnit)}</td>
+                      <td className="py-2.5 px-4 text-right font-mono">{item.qty}</td>
+                      <td className="py-2.5 px-4 text-right font-mono font-bold text-danger">{rs(item.subtotalCogs)}</td>
+                    </tr>
+                  ))}
+                  {cogs.data.items.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-ink-muted italic">No items sold in range.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -608,15 +618,15 @@ export default function ReportsPage() {
       {/* ═══════════════ TAB: Profit Summary (Super Admin Only) ═══════════════ */}
       {activeTab === "profit" && isSuperAdmin && profit.data && (
         <div className="space-y-5 animate-fade-in-up">
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
               title="Total Revenue"
               value={rs(profit.data.totalSales)}
               icon={<TrendingUp />}
             />
             <StatCard
-              title="Total Purchase Costs"
-              value={rs(profit.data.totalPurchaseCost)}
+              title="Cost of Goods Sold (COGS)"
+              value={rs(profit.data.cogs)}
               icon={<Package />}
             />
             <StatCard
@@ -631,6 +641,19 @@ export default function ReportsPage() {
                 label: "Gross margin",
               }}
               className={profit.data.grossProfit >= 0 ? "border-success/30" : "border-danger/30"}
+            />
+            <StatCard
+              title="Net Profit"
+              value={rs(profit.data.netProfit)}
+              icon={<DollarSign />}
+              delta={{
+                value: profit.data.totalSales > 0
+                  ? `${((profit.data.netProfit / profit.data.totalSales) * 100).toFixed(1)}%`
+                  : "0%",
+                isPos: profit.data.netProfit >= 0,
+                label: "Net margin",
+              }}
+              className={profit.data.netProfit >= 0 ? "border-success/30" : "border-danger/30"}
             />
           </div>
 
@@ -652,11 +675,11 @@ export default function ReportsPage() {
                     <td className="py-2.5 px-4 text-right font-mono text-success font-bold">{rs(profit.data.totalSales)}</td>
                   </tr>
                   <tr>
-                    <td className="py-2.5 px-4 font-semibold text-ink">Cost of Goods Sold (COGS - Purchase Costs)</td>
+                    <td className="py-2.5 px-4 font-semibold text-ink">Cost of Goods Sold (COGS)</td>
                     <td className="py-2.5 px-4 text-right font-mono text-ink-muted">PL-COGS</td>
-                    <td className="py-2.5 px-4 text-right font-mono text-danger font-bold">- {rs(profit.data.totalPurchaseCost)}</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-danger font-bold">- {rs(profit.data.cogs)}</td>
                   </tr>
-                  <tr className="bg-surface-sunken font-bold text-sm">
+                  <tr className="bg-surface-sunken font-bold">
                     <td className="py-3 px-4">Gross Operating Profit</td>
                     <td className="py-3 px-4 text-right font-mono text-ink-muted">PL-GPROFIT</td>
                     <td className={cn(
@@ -666,12 +689,36 @@ export default function ReportsPage() {
                       {rs(profit.data.grossProfit)}
                     </td>
                   </tr>
-                  <tr className="font-bold">
-                    <td className="py-2.5 px-4">Operating Profit Margin (%)</td>
-                    <td className="py-2.5 px-4 text-right font-mono text-ink-muted">PL-MARGIN</td>
-                    <td className="py-2.5 px-4 text-right font-mono text-primary">
+                  <tr className="font-semibold text-ink">
+                    <td className="py-2.5 px-4">Gross Margin (%)</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-ink-muted">PL-GMARGIN</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-primary font-bold">
                       {profit.data.totalSales > 0
                         ? `${((profit.data.grossProfit / profit.data.totalSales) * 100).toFixed(2)}%`
+                        : "0.00%"}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-4 font-semibold text-ink">Operating Losses (Write-offs)</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-ink-muted">PL-LOSS</td>
+                    <td className="py-2.5 px-4 text-right font-mono text-danger font-bold">- {rs(profit.data.writeOffs)}</td>
+                  </tr>
+                  <tr className="bg-surface-sunken font-bold text-sm">
+                    <td className="py-3 px-4">Net Profit</td>
+                    <td className="py-3 px-4 text-right font-mono text-ink-muted">PL-NPROFIT</td>
+                    <td className={cn(
+                      "py-3 px-4 text-right font-mono",
+                      profit.data.netProfit >= 0 ? "text-success" : "text-danger"
+                    )}>
+                      {rs(profit.data.netProfit)}
+                    </td>
+                  </tr>
+                  <tr className="font-bold text-sm">
+                    <td className="py-3 px-4">Net Margin (%)</td>
+                    <td className="py-3 px-4 text-right font-mono text-ink-muted">PL-NMARGIN</td>
+                    <td className="py-3 px-4 text-right font-mono text-primary">
+                      {profit.data.totalSales > 0
+                        ? `${((profit.data.netProfit / profit.data.totalSales) * 100).toFixed(2)}%`
                         : "0.00%"}
                     </td>
                   </tr>

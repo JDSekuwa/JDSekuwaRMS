@@ -1,5 +1,5 @@
 import { requireRole } from "@/services/auth.service";
-import { getSalesTrend } from "@/services/reports.service";
+import { getCogsReport } from "@/services/reports.service";
 import { Role } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
 
@@ -18,11 +18,11 @@ export async function GET(request: Request) {
       );
     }
 
-    const trend = await getSalesTrend(
+    const cogsReport = await getCogsReport(
       { start: new Date(startDateStr), end: new Date(endDateStr) },
       profile.id
     );
-    return NextResponse.json(trend);
+    return NextResponse.json(cogsReport);
   } catch (error: any) {
     const status = error.statusCode || 500;
     return NextResponse.json(

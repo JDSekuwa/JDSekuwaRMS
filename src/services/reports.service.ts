@@ -2,6 +2,7 @@ import { superuserPrisma } from "../lib/prisma";
 import { Role, TableOrderStatus, RoomStayStatus } from "../generated/prisma/client";
 import { ForbiddenError } from "../lib/errors";
 import { getCachedProfile } from "./auth.service";
+import { computeCostPerUnit } from "./inventory.service";
 
 export interface DateRange {
   start: Date;
@@ -397,15 +398,149 @@ export async function getProfitSummary(range: DateRange, userId: string) {
 
   const totalSales = quickTotal + tableTotal + roomTotal;
 
-  // 2. Purchases Calculations
+  // 2. COGS & Margin Calculations
+  const quickItems = await superuserPrisma.orderItem.findMany({
+    where: {
+      quickSale: { createdAt: { gte: start, lte: end } }
+    }
+  });
+
+  const tableItems = await superuserPrisma.orderItem.findMany({
+    where: {
+      tableOrder: {
+        status: TableOrderStatus.CLOSED,
+        updatedAt: { gte: start, lte: end }
+      }
+    }
+  });
+
+  const roomItems = await superuserPrisma.orderItem.findMany({
+    where: {
+      roomStay: {
+        status: RoomStayStatus.CHECKED_OUT,
+        actualCheckOut: { gte: start, lte: end }
+      }
+    }
+  });
+
+  const allItems = [...quickItems, ...tableItems, ...roomItems];
+  const itemQtyMap = new Map<string, number>();
+  for (const item of allItems) {
+    const qty = Number(item.qty);
+    itemQtyMap.set(item.menuItemId, (itemQtyMap.get(item.menuItemId) || 0) + qty);
+  }
+
+  let totalCogs = 0;
+  for (const [menuItemId, qty] of itemQtyMap.entries()) {
+    const costPerUnit = await computeCostPerUnit(menuItemId);
+    totalCogs += qty * costPerUnit;
+  }
+
+  // 3. Write-off Calculations (Operating Losses)
+  const writeOffsList = await superuserPrisma.creditLedger.findMany({
+    where: {
+      status: "WRITTEN_OFF",
+      updatedAt: { gte: start, lte: end }
+    }
+  });
+  const totalWrittenOff = writeOffsList.reduce((sum, w) => sum + Number(w.amount), 0);
+
+  // 4. Purchases Calculations (kept for stats)
   const purchases = await superuserPrisma.purchase.findMany({
     where: { purchasedAt: { gte: start, lte: end } }
   });
   const totalPurchaseCost = purchases.reduce((sum, p) => sum + Number(p.totalCost), 0);
 
+  const grossProfit = totalSales - totalCogs;
+  const netProfit = grossProfit - totalWrittenOff;
+
   return {
     totalSales,
     totalPurchaseCost,
-    grossProfit: totalSales - totalPurchaseCost
+    cogs: totalCogs,
+    grossProfit,
+    writeOffs: totalWrittenOff,
+    netProfit
+  };
+}
+
+/**
+ * Returns a report of COGS per menu item sold in the date range.
+ */
+export async function getCogsReport(range: DateRange, userId: string) {
+  await assertAdminOrSuper(userId);
+
+  const start = new Date(range.start);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(range.end);
+  end.setHours(23, 59, 59, 999);
+
+  // Fetch OrderItems from all sources
+  const quickItems = await superuserPrisma.orderItem.findMany({
+    where: {
+      quickSale: { createdAt: { gte: start, lte: end } }
+    },
+    include: { menuItem: true }
+  });
+
+  const tableItems = await superuserPrisma.orderItem.findMany({
+    where: {
+      tableOrder: {
+        status: TableOrderStatus.CLOSED,
+        updatedAt: { gte: start, lte: end }
+      }
+    },
+    include: { menuItem: true }
+  });
+
+  const roomItems = await superuserPrisma.orderItem.findMany({
+    where: {
+      roomStay: {
+        status: RoomStayStatus.CHECKED_OUT,
+        actualCheckOut: { gte: start, lte: end }
+      }
+    },
+    include: { menuItem: true }
+  });
+
+  const allItems = [...quickItems, ...tableItems, ...roomItems];
+
+  const summaryMap = new Map<string, { name: string; qty: number }>();
+  for (const item of allItems) {
+    if (!item.menuItem) continue;
+    const existing = summaryMap.get(item.menuItemId);
+    const itemQty = Number(item.qty);
+    if (existing) {
+      existing.qty += itemQty;
+    } else {
+      summaryMap.set(item.menuItemId, {
+        name: item.menuItem.name,
+        qty: itemQty
+      });
+    }
+  }
+
+  const items = [];
+  let totalCogs = 0;
+
+  for (const [menuItemId, data] of summaryMap.entries()) {
+    const costPerUnit = await computeCostPerUnit(menuItemId);
+    const subtotalCogs = data.qty * costPerUnit;
+    totalCogs += subtotalCogs;
+    items.push({
+      menuItemId,
+      name: data.name,
+      qty: data.qty,
+      costPerUnit,
+      subtotalCogs
+    });
+  }
+
+  // Sort by subtotalCogs desc
+  items.sort((a, b) => b.subtotalCogs - a.subtotalCogs);
+
+  return {
+    totalCogs,
+    items
   };
 }

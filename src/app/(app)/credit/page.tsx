@@ -402,8 +402,33 @@ export default function CreditPage() {
         title="Record Repayment Settle"
         footer={
           <>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedLedgerId) {
+                    const ledger = passbook.find((l) => l.id === selectedLedgerId);
+                    if (ledger) {
+                      const totalPaid = ledger.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+                      const outstanding = Number(ledger.amount) - totalPaid;
+                      handleWriteOff(selectedLedgerId, outstanding);
+                      setPaymentModalOpen(false);
+                    }
+                  }
+                }}
+                disabled={writeOffMutation.isPending}
+                className="px-4 py-2 border border-border hover:border-danger hover:text-danger text-xs font-semibold rounded-control transition-colors mr-auto"
+              >
+                Write Off Bad Debt
+              </button>
+            )}
             <button
-              onClick={() => setPaymentModalOpen(false)}
+              onClick={() => {
+                setPaymentModalOpen(false);
+                setSelectedLedgerId(null);
+                setPaymentAmount("");
+                setPaymentError(null);
+              }}
               className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
             >
               Cancel
