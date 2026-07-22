@@ -294,6 +294,20 @@ export default function InventoryPage() {
     setRecipeLines(next);
   };
 
+  // Real-time live calculations for Recipe Builder
+  const selectedMenuItem = menuItems.find((m) => m.id === selectedMenuId);
+  const sellPrice = Number(selectedMenuItem?.price || 0);
+
+  const liveRawCost = recipeLines.reduce((sum, line) => {
+    if (!line.rawItemId || !line.qtyPerUnit || line.qtyPerUnit <= 0) return sum;
+    const rawItem = allRawItems.find((r) => r.id === line.rawItemId);
+    const cost = rawItem?.costPrice !== undefined && rawItem?.costPrice !== null ? Number(rawItem.costPrice) : 0;
+    return sum + cost * Number(line.qtyPerUnit);
+  }, 0);
+
+  const liveGrossProfit = sellPrice - liveRawCost;
+  const liveMarginPercent = sellPrice > 0 ? (liveGrossProfit / sellPrice) * 100 : 0;
+
   // Determine if cost price column is present in the response payloads
   const hasCostData = inventory.length > 0 && inventory[0].costPrice !== null;
 
@@ -588,38 +602,53 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {selectedMenuId && !isRecipeLoading && recipeData && (
-              <div className="rounded-card bg-surface-sunken p-4 border border-border space-y-2">
-                <h4 className="text-xs font-bold text-ink uppercase tracking-wide">Live Margin Calculations</h4>
-                <div className="grid grid-cols-3 gap-4 text-center mt-2">
-                  <div className="bg-white dark:bg-card rounded-control p-2 border border-border">
+            {selectedMenuId && !isRecipeLoading && (
+              <div className="rounded-card bg-surface-sunken p-4 border border-border space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-ink uppercase tracking-wide">Live Margin Calculations</h4>
+                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20 flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                    Real-time Dynamic Costing
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="bg-white dark:bg-card rounded-control p-2.5 border border-border shadow-2xs">
                     <span className="text-[10px] text-ink-muted uppercase font-bold">Sell Price</span>
-                    <p className="text-sm font-bold text-ink mt-0.5 tabular-nums">
-                      Rs. {Number(menuItems.find(m => m.id === selectedMenuId)?.price || 0).toFixed(2)}
+                    <p className="text-sm font-black text-ink mt-0.5 tabular-nums">
+                      Rs. {sellPrice.toFixed(2)}
                     </p>
                   </div>
-                  <div className="bg-white dark:bg-card rounded-control p-2 border border-border">
-                    <span className="text-[10px] text-ink-muted uppercase font-bold">Raw Cost</span>
-                    <p className="text-sm font-bold text-ink mt-0.5 tabular-nums">
-                      {recipeData.costPerUnit !== null ? `Rs. ${recipeData.costPerUnit.toFixed(2)}` : "-"}
+                  <div className="bg-white dark:bg-card rounded-control p-2.5 border border-border shadow-2xs">
+                    <span className="text-[10px] text-ink-muted uppercase font-bold">Raw Cost (Live)</span>
+                    <p className="text-sm font-black text-primary mt-0.5 tabular-nums">
+                      Rs. {liveRawCost.toFixed(2)}
                     </p>
                   </div>
-                  <div className="bg-white dark:bg-card rounded-control p-2 border border-border">
+                  <div className="bg-white dark:bg-card rounded-control p-2.5 border border-border shadow-2xs">
                     <span className="text-[10px] text-ink-muted uppercase font-bold">Gross Profit</span>
-                    {recipeData.costPerUnit !== null ? (
-                      <p
-                        className={cn(
-                          "text-sm font-bold mt-0.5 tabular-nums",
-                          Number(menuItems.find(m => m.id === selectedMenuId)?.price || 0) - recipeData.costPerUnit >= 0
-                            ? "text-success"
-                            : "text-danger"
-                        )}
-                      >
-                        Rs. {(Number(menuItems.find(m => m.id === selectedMenuId)?.price || 0) - recipeData.costPerUnit).toFixed(2)}
-                      </p>
-                    ) : (
-                      <p className="text-sm font-bold text-ink mt-0.5">-</p>
-                    )}
+                    <p
+                      className={cn(
+                        "text-sm font-black mt-0.5 tabular-nums",
+                        liveGrossProfit >= 0 ? "text-success" : "text-danger"
+                      )}
+                    >
+                      Rs. {liveGrossProfit.toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="bg-white dark:bg-card rounded-control p-2.5 border border-border shadow-2xs">
+                    <span className="text-[10px] text-ink-muted uppercase font-bold">Gross Margin</span>
+                    <p
+                      className={cn(
+                        "text-sm font-black mt-0.5 tabular-nums",
+                        liveMarginPercent >= 60
+                          ? "text-success"
+                          : liveMarginPercent >= 30
+                          ? "text-warning"
+                          : "text-danger"
+                      )}
+                    >
+                      {liveMarginPercent.toFixed(1)}%
+                    </p>
                   </div>
                 </div>
               </div>
@@ -640,47 +669,63 @@ export default function InventoryPage() {
                 </div>
 
                 <div className="space-y-2.5 pr-1">
-                  {recipeLines.map((line, idx) => (
-                    <div key={idx} className="flex gap-3 items-end">
-                      <div className="flex-1">
-                        <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
-                          Ingredient
-                        </label>
-                        <SearchableSelect
-                          value={line.rawItemId}
-                          onChange={(val) => handleRecipeLineChange(idx, "rawItemId", val)}
-                          options={allRawItems.map((item) => ({
-                            id: item.id,
-                            label: `${item.name} (${item.unit})`
-                          }))}
-                          placeholder="-- Choose Raw Ingredient --"
-                        />
-                      </div>
+                  {recipeLines.map((line, idx) => {
+                    const rawItem = allRawItems.find((r) => r.id === line.rawItemId);
+                    const costPrice = rawItem?.costPrice !== undefined && rawItem?.costPrice !== null ? Number(rawItem.costPrice) : 0;
+                    const lineSubtotal = costPrice * Number(line.qtyPerUnit || 0);
 
-                      <div className="w-32">
-                        <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
-                          Qty Per Unit
-                        </label>
-                        <input
-                          type="number"
-                          step="0.001"
-                          value={line.qtyPerUnit || ""}
-                          onChange={(e) => handleRecipeLineChange(idx, "qtyPerUnit", e.target.value)}
-                          required
-                          placeholder="e.g. 0.350"
-                          className="w-full rounded-control border border-border px-2.5 py-1.5 text-xs text-ink outline-none focus:border-primary"
-                        />
-                      </div>
+                    return (
+                      <div key={idx} className="flex flex-wrap sm:flex-nowrap gap-3 items-end p-2.5 rounded-control bg-card border border-border/70 shadow-2xs">
+                        <div className="flex-1 min-w-[200px]">
+                          <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                            Ingredient
+                          </label>
+                          <SearchableSelect
+                            value={line.rawItemId}
+                            onChange={(val) => handleRecipeLineChange(idx, "rawItemId", val)}
+                            options={allRawItems.map((item) => ({
+                              id: item.id,
+                              label: `${item.name} (${item.unit})${item.costPrice !== null ? ` — Rs. ${Number(item.costPrice).toFixed(2)}/${item.unit}` : ""}`
+                            }))}
+                            placeholder="-- Choose Raw Ingredient --"
+                          />
+                        </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveRecipeLine(idx)}
-                        className="px-2.5 py-1.5 border border-border hover:border-danger hover:text-danger rounded-control transition-colors"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
+                        <div className="w-28">
+                          <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                            Qty Per Unit
+                          </label>
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={line.qtyPerUnit || ""}
+                            onChange={(e) => handleRecipeLineChange(idx, "qtyPerUnit", e.target.value)}
+                            required
+                            placeholder="e.g. 0.350"
+                            className="w-full rounded-control border border-border px-2.5 py-1.5 text-xs text-ink outline-none focus:border-primary font-mono"
+                          />
+                        </div>
+
+                        {/* Live Line Cost Subtotal */}
+                        <div className="w-28 text-right">
+                          <span className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+                            Line Cost
+                          </span>
+                          <div className="px-2.5 py-1.5 rounded-control bg-surface-sunken border border-border text-xs font-mono font-bold text-primary tabular-nums">
+                            Rs. {lineSubtotal.toFixed(2)}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRecipeLine(idx)}
+                          className="px-2.5 py-1.5 border border-border hover:border-danger hover:text-danger rounded-control transition-colors text-xs font-semibold"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    );
+                  })}
                   {recipeLines.length === 0 && (
                     <p className="text-xs text-ink-muted italic text-center py-4">
                       No ingredients configured. Click "+ Add Line" to select raw items.

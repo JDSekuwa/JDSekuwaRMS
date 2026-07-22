@@ -2,7 +2,7 @@ import { prisma, superuserPrisma } from "../lib/prisma";
 import { Role, RoomStatus, RoomStayStatus, PaymentType, CreditSource } from "../generated/prisma/client";
 import { setSessionContext, getCachedProfile } from "./auth.service";
 import { logAction } from "./audit.service";
-import { deductForSale } from "./inventory.service";
+import { deductForSale, restoreForVoid } from "./inventory.service";
 import { upsertCreditEntry } from "./credit.service";
 import { RoomConflictError, ForbiddenError } from "../lib/errors";
 import { serverCache } from "../lib/cache";
@@ -484,3 +484,104 @@ export async function checkOut(
     };
   }, { maxWait: 5000, timeout: 15000 });
 }
+
+/**
+ * Vacates an active RoomStay (e.g. for phone booking no-shows or cancellations),
+ * voiding unbilled service items, restoring raw ingredient stock, marking stay CANCELLED,
+ * and resetting room status to VACANT.
+ */
+export async function vacateRoomStay(
+  roomStayId: string,
+  userId: string,
+  reason?: string
+): Promise<any> {
+  const profile = await getCachedProfile(userId);
+  if (!profile) {
+    throw new Error("User not found");
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    await setSessionContext(tx, profile.role, userId);
+
+    const roomStay = await tx.roomStay.findUnique({
+      where: { id: roomStayId },
+      include: {
+        room: true,
+        orderItems: {
+          where: { isVoid: false }
+        }
+      }
+    });
+
+    if (!roomStay) {
+      throw new Error("Room stay not found");
+    }
+    if (roomStay.status !== RoomStayStatus.ACTIVE) {
+      throw new Error("Room stay is not active");
+    }
+
+    // 1. Void all active posted service items and restore raw ingredient stock
+    for (const item of roomStay.orderItems) {
+      await tx.orderItem.update({
+        where: { id: item.id },
+        data: {
+          isVoid: true,
+          voidedById: userId,
+          voidedAt: new Date()
+        }
+      });
+      await restoreForVoid(item.id, tx);
+    }
+
+    // 2. Mark room stay as CANCELLED with optimistic locking
+    const updatedStay = await tx.roomStay.updateMany({
+      where: {
+        id: roomStayId,
+        version: roomStay.version
+      },
+      data: {
+        status: RoomStayStatus.CANCELLED,
+        actualCheckOut: new Date(),
+        version: { increment: 1 }
+      }
+    });
+    if (updatedStay.count === 0) {
+      throw new RoomConflictError("Room stay was modified by another session");
+    }
+
+    // 3. Reset room status to VACANT with optimistic locking
+    const updatedRoom = await tx.room.updateMany({
+      where: {
+        id: roomStay.roomId,
+        version: roomStay.room.version
+      },
+      data: {
+        status: RoomStatus.VACANT,
+        version: { increment: 1 }
+      }
+    });
+    if (updatedRoom.count === 0) {
+      throw new RoomConflictError("Room was modified by another session");
+    }
+
+    await logAction(
+      userId,
+      "VACATE_ROOM_STAY",
+      "RoomStay",
+      roomStayId,
+      { roomId: roomStay.roomId, reason: reason || "No-show / Booking Cancelled" },
+      tx
+    );
+
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
+    return {
+      success: true,
+      roomStayId,
+      roomId: roomStay.roomId
+    };
+  }, { maxWait: 5000, timeout: 15000 });
+}
+

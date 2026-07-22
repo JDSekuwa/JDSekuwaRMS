@@ -26,7 +26,8 @@ import {
   Star,
   Trash2,
   XCircle,
-  Printer
+  Printer,
+  RotateCcw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -118,6 +119,11 @@ export default function RoomsPage() {
   // Form states — Checkout
   const [paymentType, setPaymentType] = useState<"CASH" | "CARD" | "CREDIT">("CASH");
   const [checkOutError, setCheckOutError] = useState<string | null>(null);
+
+  // Form states — Vacate (No-Show)
+  const [vacateModalOpen, setVacateModalOpen] = useState(false);
+  const [vacateReason, setVacateReason] = useState("Phone booking - Customer did not arrive");
+  const [vacateError, setVacateError] = useState<string | null>(null);
 
   // Settings configs
   const [restaurantName, setRestaurantName] = useState("JD Sekuwa House");
@@ -278,6 +284,25 @@ export default function RoomsPage() {
       setCheckOutOpen(false); setSelectedRoom(null); setPaymentType("CASH"); setCheckOutError(null);
     },
     onError: (err: any) => setCheckOutError(err.message || "Checkout failed")
+  });
+
+  const vacateRoomMutation = useMutation({
+    mutationFn: async ({ stayId, reason }: { stayId: string; reason?: string }) => {
+      const res = await fetch(`/api/rooms/stay/${stayId}/vacate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason })
+      });
+      if (!res.ok) { const errData = await res.json(); throw new Error(errData.error || "Vacate room stay failed"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      setVacateModalOpen(false); setSelectedRoom(null); setVacateReason("Phone booking - Customer did not arrive"); setVacateError(null);
+    },
+    onError: (err: any) => setVacateError(err.message || "Failed to vacate room")
   });
 
   // Create, Update, Delete Room mutations
@@ -794,17 +819,32 @@ export default function RoomsPage() {
                     <>
                       <button
                         onClick={() => { setSelectedRoom(room); setChargeOpen(true); }}
-                        className="flex-1 flex items-center justify-center gap-1 px-3 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white text-[10px] font-black rounded-control border border-white/15 transition-all duration-200"
+                        className="flex-1 flex items-center justify-center gap-1 px-2.5 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white text-[10px] font-black rounded-control border border-white/15 transition-all duration-200"
+                        title="Add service charges"
                       >
                         <Coffee className="h-3.5 w-3.5 opacity-70" />
-                        <span>Service Charge</span>
+                        <span>Charge</span>
                       </button>
                       <button
                         onClick={() => { setSelectedRoom(room); setCheckOutOpen(true); }}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-danger/80 hover:bg-danger backdrop-blur-sm text-white text-[10px] font-black rounded-control border border-danger/30 shadow-lg transition-all duration-200 active:scale-[0.98]"
+                        className="flex-1 flex items-center justify-center gap-1 px-2.5 py-2.5 bg-danger/80 hover:bg-danger backdrop-blur-sm text-white text-[10px] font-black rounded-control border border-danger/30 shadow-lg transition-all duration-200 active:scale-[0.98]"
+                        title="Checkout guest and settle invoice"
                       >
                         <LogOut className="h-3.5 w-3.5" />
                         <span>Check Out</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedRoom(room);
+                          setVacateReason("Phone booking - Customer did not arrive");
+                          setVacateError(null);
+                          setVacateModalOpen(true);
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1 px-2.5 py-2.5 bg-warning/80 hover:bg-warning backdrop-blur-sm text-white text-[10px] font-black rounded-control border border-warning/30 shadow-lg transition-all duration-200 active:scale-[0.98]"
+                        title="Make Vacant (No-Show / Cancel Booking)"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span>Vacate</span>
                       </button>
                     </>
                   )}
@@ -1434,6 +1474,78 @@ export default function RoomsPage() {
             )}
           </form>
         )}
+      </Modal>
+
+      {/* ══════════════════════════════════════════════════════════════
+          MODAL 4: VACATE ROOM STAY (NO-SHOW / CANCEL BOOKING)
+      ══════════════════════════════════════════════════════════════ */}
+      <Modal
+        isOpen={vacateModalOpen}
+        onClose={() => {
+          setVacateModalOpen(false);
+          setSelectedRoom(null);
+          setVacateError(null);
+        }}
+        title={`Make Room Vacant — ${selectedRoom?.name || ""}`}
+        footer={
+          <>
+            <button
+              onClick={() => {
+                setVacateModalOpen(false);
+                setSelectedRoom(null);
+                setVacateError(null);
+              }}
+              className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={vacateRoomMutation.isPending || !selectedRoom?.activeStay}
+              onClick={() => {
+                if (selectedRoom?.activeStay) {
+                  vacateRoomMutation.mutate({
+                    stayId: selectedRoom.activeStay.id,
+                    reason: vacateReason
+                  });
+                }
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-warning text-white text-xs font-extrabold rounded-control shadow-sm hover:bg-warning-hover disabled:opacity-50 transition-colors"
+            >
+              {vacateRoomMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Make Room Vacant (No-Show)</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-card bg-surface-sunken p-3 text-xs text-ink space-y-1.5 border border-border">
+            <p className="font-semibold">
+              This room was registered for guest <span className="font-extrabold text-ink">{selectedRoom?.activeStay?.guestName}</span> ({selectedRoom?.activeStay?.phone}).
+            </p>
+            <p className="text-ink-muted text-[11px]">
+              Making it vacant will cancel the room stay, reset room status to <span className="font-bold text-success">VACANT</span>, and void any posted room service charges without generating a bill or credit entry.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">
+              Cancellation / No-Show Reason (Optional)
+            </label>
+            <input
+              type="text"
+              value={vacateReason}
+              onChange={(e) => setVacateReason(e.target.value)}
+              placeholder="e.g. Guest did not arrive after phone booking"
+              className="w-full rounded-control border border-border px-3 py-2 text-xs text-ink outline-none focus:border-primary"
+            />
+          </div>
+
+          {vacateError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
+              {vacateError}
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );

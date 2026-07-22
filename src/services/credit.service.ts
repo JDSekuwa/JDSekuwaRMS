@@ -393,3 +393,95 @@ export async function writeOff(
   });
 }
 
+/**
+ * Records a lump-sum payment on a customer account, distributing funds across all open credit invoices
+ * in First-In, First-Out (FIFO) chronological order (oldest debt paid first).
+ */
+export async function recordCustomerAccountPayment(
+  phone: string,
+  amount: number,
+  recordedById: string
+): Promise<{ totalApplied: number; affectedInvoicesCount: number }> {
+  const normalizedPhone = phone.trim();
+  if (!normalizedPhone) {
+    throw new Error("Customer phone number is required");
+  }
+  if (amount <= 0) {
+    throw new Error("Payment amount must be greater than zero");
+  }
+
+  const profile = await getCachedProfile(recordedById);
+  if (!profile) {
+    throw new Error("Recorder profile not found");
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    await setSessionContext(tx, profile.role, recordedById);
+
+    // Fetch all unsettled credit entries for this phone number, oldest givenDate first (FIFO)
+    const openLedgers = await tx.creditLedger.findMany({
+      where: {
+        phone: { equals: normalizedPhone, mode: "insensitive" },
+        status: { in: [CreditStatus.PENDING, CreditStatus.PARTIAL] }
+      },
+      include: { payments: true },
+      orderBy: { givenDate: "asc" }
+    });
+
+    if (openLedgers.length === 0) {
+      throw new Error("No open credit invoices found for this customer phone number");
+    }
+
+    let remainingPayment = amount;
+    let totalApplied = 0;
+    let affectedInvoicesCount = 0;
+
+    for (const ledger of openLedgers) {
+      if (remainingPayment <= 0) break;
+
+      const prevPaid = ledger.payments.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+      const outstanding = Math.max(0, Number(ledger.amount) - prevPaid);
+
+      if (outstanding <= 0.001) continue;
+
+      const allocation = Math.min(remainingPayment, outstanding);
+
+      // Create itemized payment record for this specific invoice
+      await tx.creditPayment.create({
+        data: {
+          creditLedgerId: ledger.id,
+          amount: allocation,
+          recordedById
+        }
+      });
+
+      const newTotalPaid = prevPaid + allocation;
+      let newStatus: CreditStatus = CreditStatus.PARTIAL;
+      if (newTotalPaid >= Number(ledger.amount) - 0.01) {
+        newStatus = CreditStatus.PAID;
+      }
+
+      await tx.creditLedger.update({
+        where: { id: ledger.id },
+        data: { status: newStatus }
+      });
+
+      await logAction(
+        recordedById,
+        "RECORD_CREDIT_PAYMENT",
+        "CreditLedger",
+        ledger.id,
+        { amount: allocation, status: newStatus, bulkAccountPayment: true },
+        tx
+      );
+
+      remainingPayment -= allocation;
+      totalApplied += allocation;
+      affectedInvoicesCount++;
+    }
+
+    return { totalApplied, affectedInvoicesCount };
+  });
+}
+
+

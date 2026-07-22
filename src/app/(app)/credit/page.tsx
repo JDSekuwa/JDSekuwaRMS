@@ -57,6 +57,11 @@ export default function CreditPage() {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
+  // Master Account Settle modal parameters
+  const [masterSettleModalOpen, setMasterSettleModalOpen] = useState(false);
+  const [masterSettleAmount, setMasterSettleAmount] = useState("");
+  const [masterSettleError, setMasterSettleError] = useState<string | null>(null);
+
   // 1. Fetch outstanding credit customer summaries list
   const { data: paginatedData, isLoading: isCustLoading } = useQuery<{ data: CustomerSummary[]; pagination: any }>({
     queryKey: ["credit-customers", page, limit, searchQuery],
@@ -127,6 +132,49 @@ export default function CreditPage() {
       refetchPassbook();
     }
   });
+
+  // 5. Mutation: Master Account Lump-Sum Settlement (FIFO Waterfall)
+  const masterSettleMutation = useMutation({
+    mutationFn: async ({ phone, amount }: { phone: string; amount: number }) => {
+      const res = await fetch("/api/credit/pay-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, amount })
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Master account settlement failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["credit-customers"] });
+      queryClient.invalidateQueries({ queryKey: ["credit-passbook", selectedPhone] });
+      queryClient.invalidateQueries({ queryKey: ["customer-credit-lookup", selectedPhone] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      setMasterSettleModalOpen(false);
+      setMasterSettleAmount("");
+      setMasterSettleError(null);
+      refetchPassbook();
+    },
+    onError: (err: any) => {
+      setMasterSettleError(err.message || "Failed to record account settlement");
+    }
+  });
+
+  const handleMasterSettleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPhone) return;
+
+    const amount = parseFloat(masterSettleAmount);
+    if (isNaN(amount) || amount <= 0) {
+      setMasterSettleError("Please enter a valid positive payment amount.");
+      return;
+    }
+
+    setMasterSettleError(null);
+    masterSettleMutation.mutate({ phone: selectedPhone, amount });
+  };
 
   const handlePaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -281,6 +329,39 @@ export default function CreditPage() {
                   {/* Customer Multi-Section Accumulated Credit Widget */}
                   {selectedPhone && (
                     <CustomerCreditSyncWidget phone={selectedPhone} />
+                  )}
+
+                  {/* Master Account Settlement Header Action Bar */}
+                  {selectedPhone && passbook.length > 0 && (
+                    (() => {
+                      const totalCustomerOutstanding = passbook.reduce((sum, ledger) => {
+                        if (ledger.status === "PAID" || ledger.status === "WRITTEN_OFF") return sum;
+                        const totalPaid = ledger.payments.reduce((pSum, p) => pSum + Number(p.amount), 0);
+                        return sum + Math.max(0, Number(ledger.amount) - totalPaid);
+                      }, 0);
+
+                      if (totalCustomerOutstanding <= 0) return null;
+
+                      return (
+                        <div className="flex items-center justify-between p-3 rounded-card bg-primary/10 border border-primary/25 shadow-2xs">
+                          <div>
+                            <span className="text-[10px] font-extrabold uppercase text-primary tracking-wider block">Single Account Settlement</span>
+                            <span className="text-xs text-ink-muted">Settle lump-sum across all sales via FIFO</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setMasterSettleAmount(totalCustomerOutstanding.toFixed(2));
+                              setMasterSettleError(null);
+                              setMasterSettleModalOpen(true);
+                            }}
+                            className="flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-extrabold rounded-control shadow-sm hover:bg-primary-hover active:scale-[0.99] transition-all"
+                          >
+                            <CreditCard className="h-4 w-4" />
+                            <span>Settle Account (Rs. {totalCustomerOutstanding.toFixed(2)})</span>
+                          </button>
+                        </div>
+                      );
+                    })()
                   )}
 
 
@@ -474,6 +555,77 @@ export default function CreditPage() {
           {paymentError && (
             <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
               {paymentError}
+            </div>
+          )}
+        </form>
+      </Modal>
+
+      {/* MODAL 5: MASTER ACCOUNT SETTLEMENT */}
+      <Modal
+        isOpen={masterSettleModalOpen}
+        onClose={() => {
+          setMasterSettleModalOpen(false);
+          setMasterSettleAmount("");
+          setMasterSettleError(null);
+        }}
+        title={`Settle Customer Account — ${selectedCustomerName}`}
+        footer={
+          <>
+            <button
+              onClick={() => {
+                setMasterSettleModalOpen(false);
+                setMasterSettleAmount("");
+                setMasterSettleError(null);
+              }}
+              className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="master-settle-form"
+              disabled={masterSettleMutation.isPending}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-extrabold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {masterSettleMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Settle Lump-Sum Account</span>
+            </button>
+          </>
+        }
+      >
+        <form id="master-settle-form" onSubmit={handleMasterSettleSubmit} className="space-y-4">
+          <div className="rounded-card bg-surface-sunken p-3 border border-border space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-ink-muted">Customer Name:</span>
+              <span className="font-bold text-ink">{selectedCustomerName}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-ink-muted">Phone Number:</span>
+              <span className="font-mono text-ink">{selectedPhone}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
+              Payment Amount (NPR)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={masterSettleAmount}
+              onChange={(e) => setMasterSettleAmount(e.target.value)}
+              placeholder="e.g. 5000.00"
+              required
+              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary font-mono font-bold"
+            />
+            <span className="text-[10px] text-ink-muted mt-1 block">
+              Funds will be automatically allocated across open invoices in First-In, First-Out (FIFO) chronological order.
+            </span>
+          </div>
+
+          {masterSettleError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
+              {masterSettleError}
             </div>
           )}
         </form>

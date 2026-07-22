@@ -7,6 +7,7 @@ import {
   recordPayment,
   writeOff,
   getCustomerCreditLookup,
+  recordCustomerAccountPayment,
   CreditCustomerSummary
 } from "./credit.service";
 import { Role, CreditStatus, CreditSource } from "../generated/prisma/client";
@@ -178,6 +179,51 @@ describe("Credit Ledger Service Integration Tests (Stage B-5)", () => {
     expect(lookup.sectionBreakdown.pos).toBe(500.00);
     expect(lookup.sectionBreakdown.tables).toBe(1200.00);
     expect(lookup.sectionBreakdown.rooms).toBe(3500.00);
+  });
+
+  it("should record lump-sum payment on customer account and cascade via FIFO waterfall across oldest credit invoices", async () => {
+    // Invoice 1 (Oldest - 5 days ago): 1000
+    const inv1 = await superuserPrisma.creditLedger.create({
+      data: {
+        customerName: "FIFO Customer",
+        phone: testPhone,
+        source: CreditSource.QUICK_SELL,
+        sourceId: "00000000-0000-0000-0000-000000000021",
+        amount: 1000.00,
+        givenDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        dueDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+        status: CreditStatus.PENDING
+      }
+    });
+
+    // Invoice 2 (Newer - 1 day ago): 2000
+    const inv2 = await superuserPrisma.creditLedger.create({
+      data: {
+        customerName: "FIFO Customer",
+        phone: testPhone,
+        source: CreditSource.ROOM_STAY,
+        sourceId: "00000000-0000-0000-0000-000000000022",
+        amount: 2000.00,
+        givenDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+        dueDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+        status: CreditStatus.PENDING
+      }
+    });
+
+    // Pay lump-sum of 1500 (should fully pay inv1 [1000] and partially pay inv2 [500])
+    const res = await recordCustomerAccountPayment(testPhone, 1500.00, workerId);
+
+    expect(res.totalApplied).toBe(1500.00);
+    expect(res.affectedInvoicesCount).toBe(2);
+
+    const updatedInv1 = await superuserPrisma.creditLedger.findUnique({ where: { id: inv1.id } });
+    const updatedInv2 = await superuserPrisma.creditLedger.findUnique({ where: { id: inv2.id } });
+
+    expect(updatedInv1!.status).toBe(CreditStatus.PAID);
+    expect(updatedInv2!.status).toBe(CreditStatus.PARTIAL);
+
+    const lookup = await getCustomerCreditLookup(testPhone);
+    expect(lookup.totalOutstanding).toBe(1500.00); // 3000 total - 1500 paid
   });
 });
 

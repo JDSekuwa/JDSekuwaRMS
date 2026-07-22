@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { prisma, superuserPrisma } from "../lib/prisma";
-import { checkIn, addRoomServiceCharge, checkOut, updateRoomStayDates, createRoom, updateRoom, deleteRoom } from "./rooms.service";
+import { checkIn, addRoomServiceCharge, checkOut, updateRoomStayDates, createRoom, updateRoom, deleteRoom, vacateRoomStay } from "./rooms.service";
 import { RoomStatus, RoomStayStatus, PaymentType, Role } from "../generated/prisma/client";
 import { RoomConflictError, ForbiddenError } from "../lib/errors";
 
@@ -245,5 +245,45 @@ describe("Room Management Service Integration Tests (Stage B-4)", () => {
         deleteRoom(adminId, room.id)
       ).rejects.toThrow(/cannot delete an occupied room/i);
     });
+
+    it("should successfully vacate an active room stay when customer fails to arrive (no-show), restoring stock and resetting room to VACANT", async () => {
+      // 1. Fetch raw item stock level before service charge
+      const porkBefore = await superuserPrisma.rawItem.findUnique({ where: { id: rawPorkId } });
+
+      // 2. Check in phone booking guest
+      const guestDetails = {
+        guestName: "No-Show Phone Guest",
+        phone: "9844444444",
+        idProof: "ID-NOSHOW",
+        numGuests: 1,
+        expectedCheckOut: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000)
+      };
+      const stay = await checkIn(testRoomId, guestDetails, workerId);
+      expect(stay.status).toBe(RoomStayStatus.ACTIVE);
+
+      // Add service charge prior to customer cancelling
+      await addRoomServiceCharge(stay.id, porkMenuItemId, 1, workerId);
+
+      // Verify stock was deducted
+      const porkDeducted = await superuserPrisma.rawItem.findUnique({ where: { id: rawPorkId } });
+      expect(Number(porkDeducted!.currentStock)).toBe(Number(porkBefore!.currentStock) - 0.333);
+
+      // 3. Vacate the room stay (No-Show reset)
+      const vacateRes = await vacateRoomStay(stay.id, workerId, "Guest did not arrive after phone booking");
+      expect(vacateRes.success).toBe(true);
+
+      // Verify room status returned to VACANT
+      const roomVacant = await superuserPrisma.room.findUnique({ where: { id: testRoomId } });
+      expect(roomVacant!.status).toBe(RoomStatus.VACANT);
+
+      // Verify stay status marked CANCELLED
+      const stayCancelled = await superuserPrisma.roomStay.findUnique({ where: { id: stay.id } });
+      expect(stayCancelled!.status).toBe(RoomStayStatus.CANCELLED);
+
+      // Verify raw ingredient stock restored back to original level!
+      const porkRestored = await superuserPrisma.rawItem.findUnique({ where: { id: rawPorkId } });
+      expect(Number(porkRestored!.currentStock)).toBe(Number(porkBefore!.currentStock));
+    });
   });
 });
+
