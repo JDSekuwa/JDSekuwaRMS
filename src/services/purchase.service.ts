@@ -256,3 +256,237 @@ export async function listPurchases(
     }
   });
 }
+
+/**
+ * Retrieves a single purchase record by ID.
+ * Gated to Admin/Super Admin only.
+ */
+export async function getPurchase(id: string, userId: string): Promise<any> {
+  const profile = await getCachedProfile(userId);
+  if (!profile) {
+    throw new Error("User profile not found");
+  }
+
+  if (profile.role !== Role.ADMIN && profile.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenError("Only Admins and Super Admins can view purchase records");
+  }
+
+  const purchase = await prisma.purchase.findUnique({
+    where: { id },
+    include: {
+      rawItem: {
+        select: {
+          id: true,
+          name: true,
+          unit: true,
+          costPrice: true
+        }
+      },
+      recordedBy: {
+        select: {
+          id: true,
+          role: true
+        }
+      }
+    }
+  });
+
+  if (!purchase) {
+    throw new Error("Purchase record not found");
+  }
+
+  return purchase;
+}
+
+export interface UpdatePurchaseInput {
+  rawItemId?: string;
+  qty?: number;
+  unitCost?: number;
+  supplierName?: string | null;
+}
+
+/**
+ * Updates an existing purchase record, reconciles inventory stock, and logs the audit event.
+ * Gated to Admin/Super Admin only.
+ */
+export async function updatePurchase(
+  id: string,
+  data: UpdatePurchaseInput,
+  userId: string
+): Promise<any> {
+  const profile = await getCachedProfile(userId);
+  if (!profile) {
+    throw new Error("User profile not found");
+  }
+
+  if (profile.role !== Role.ADMIN && profile.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenError("Only Admins and Super Admins can edit purchase records");
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    await setSessionContext(tx, profile.role, userId);
+
+    // 1. Fetch existing purchase record
+    const existing = await tx.purchase.findUnique({
+      where: { id }
+    });
+
+    if (!existing) {
+      throw new Error("Purchase record not found");
+    }
+
+    const oldQty = Number(existing.qty);
+    const oldUnitCost = Number(existing.unitCost);
+    const newRawItemId = data.rawItemId || existing.rawItemId;
+    const newQty = data.qty !== undefined ? data.qty : oldQty;
+    const newUnitCost = data.unitCost !== undefined ? data.unitCost : oldUnitCost;
+    const newTotalCost = newQty * newUnitCost;
+    const newSupplierName = data.supplierName !== undefined ? data.supplierName : existing.supplierName;
+
+    // 2. Adjust inventory stock delta
+    if (existing.rawItemId === newRawItemId) {
+      const qtyDelta = newQty - oldQty;
+      if (qtyDelta !== 0) {
+        const rawItem = await tx.rawItem.findUnique({
+          where: { id: newRawItemId },
+          select: { currentStock: true }
+        });
+        if (rawItem) {
+          await tx.rawItem.update({
+            where: { id: newRawItemId },
+            data: { currentStock: Number(rawItem.currentStock) + qtyDelta }
+          });
+        }
+      }
+    } else {
+      // Raw item changed: deduct old qty from old item, add new qty to new item
+      const oldItem = await tx.rawItem.findUnique({
+        where: { id: existing.rawItemId },
+        select: { currentStock: true }
+      });
+      if (oldItem) {
+        await tx.rawItem.update({
+          where: { id: existing.rawItemId },
+          data: { currentStock: Number(oldItem.currentStock) - oldQty }
+        });
+      }
+
+      const newItem = await tx.rawItem.findUnique({
+        where: { id: newRawItemId },
+        select: { currentStock: true }
+      });
+      if (!newItem) {
+        throw new Error("New raw ingredient not found");
+      }
+      await tx.rawItem.update({
+        where: { id: newRawItemId },
+        data: { currentStock: Number(newItem.currentStock) + newQty }
+      });
+    }
+
+    // 3. Update purchase record
+    const updated = await tx.purchase.update({
+      where: { id },
+      data: {
+        rawItemId: newRawItemId,
+        qty: newQty,
+        unitCost: newUnitCost,
+        totalCost: newTotalCost,
+        supplierName: newSupplierName ? newSupplierName.trim() : null
+      },
+      include: {
+        rawItem: {
+          select: {
+            name: true,
+            unit: true
+          }
+        },
+        recordedBy: {
+          select: {
+            role: true
+          }
+        }
+      }
+    });
+
+    // 4. Log audit action
+    await logAction(
+      userId,
+      "UPDATE_PURCHASE",
+      "Purchase",
+      id,
+      { oldQty, newQty, oldUnitCost, newUnitCost, newTotalCost },
+      tx
+    );
+
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
+    return updated;
+  }, { maxWait: 5000, timeout: 15000 });
+}
+
+/**
+ * Deletes a purchase record, reverses stock addition, and logs the audit event.
+ * Gated to Admin/Super Admin only.
+ */
+export async function deletePurchase(id: string, userId: string): Promise<{ success: boolean }> {
+  const profile = await getCachedProfile(userId);
+  if (!profile) {
+    throw new Error("User profile not found");
+  }
+
+  if (profile.role !== Role.ADMIN && profile.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenError("Only Admins and Super Admins can delete purchase records");
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    await setSessionContext(tx, profile.role, userId);
+
+    // 1. Fetch existing purchase record
+    const existing = await tx.purchase.findUnique({
+      where: { id }
+    });
+
+    if (!existing) {
+      throw new Error("Purchase record not found");
+    }
+
+    // 2. Revert inventory stock
+    const rawItem = await tx.rawItem.findUnique({
+      where: { id: existing.rawItemId },
+      select: { currentStock: true }
+    });
+
+    if (rawItem) {
+      const newStock = Number(rawItem.currentStock) - Number(existing.qty);
+      await tx.rawItem.update({
+        where: { id: existing.rawItemId },
+        data: { currentStock: newStock }
+      });
+    }
+
+    // 3. Delete purchase entry
+    await tx.purchase.delete({
+      where: { id }
+    });
+
+    // 4. Log audit action
+    await logAction(
+      userId,
+      "DELETE_PURCHASE",
+      "Purchase",
+      id,
+      { rawItemId: existing.rawItemId, qty: existing.qty, totalCost: existing.totalCost },
+      tx
+    );
+
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
+    return { success: true };
+  }, { maxWait: 5000, timeout: 15000 });
+}
+
