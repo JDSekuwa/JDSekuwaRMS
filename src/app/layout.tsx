@@ -12,6 +12,15 @@ const roboto = Roboto({
 export const metadata: Metadata = {
   title: "JD Sekuwa House - RMS",
   description: "Restaurant Management System",
+  icons: {
+    icon: [
+      { url: "/logo.png", type: "image/png" },
+    ],
+    shortcut: ["/logo.png"],
+    apple: [
+      { url: "/logo.png", type: "image/png" },
+    ],
+  },
 };
 
 export default function RootLayout({

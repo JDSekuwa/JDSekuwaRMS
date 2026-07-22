@@ -814,3 +814,92 @@ export async function closeTableOrder(
     return { success: true };
   }, { maxWait: 5000, timeout: 15000 });
 }
+
+/**
+ * Vacates an occupied table without closing/billing an order.
+ * Useful when customers leave without ordering or placing service requests.
+ * Marks open TableOrder as VOIDED, voids unbilled items, and sets RestaurantTable status to VACANT.
+ */
+export async function vacateTableOrder(
+  tableId: string,
+  userId: string,
+  reason?: string
+): Promise<any> {
+  const profile = await getCachedProfile(userId);
+  if (!profile) {
+    throw new Error("User not found");
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    await setSessionContext(tx, profile.role, userId);
+
+    const table = await tx.restaurantTable.findUnique({
+      where: { id: tableId }
+    });
+    if (!table) {
+      throw new Error("Table not found");
+    }
+
+    // Find any open order for this table
+    const openOrder = await tx.tableOrder.findFirst({
+      where: { tableId, status: TableOrderStatus.OPEN },
+      include: { items: { where: { isVoid: false } } }
+    });
+
+    if (openOrder) {
+      // Mark all unbilled order items as voided
+      if (openOrder.items.length > 0) {
+        await tx.orderItem.updateMany({
+          where: { tableOrderId: openOrder.id, isVoid: false },
+          data: {
+            isVoid: true,
+            voidedById: userId,
+            voidedAt: new Date()
+          }
+        });
+      }
+
+      // Void the open order
+      const orderUpdated = await tx.tableOrder.updateMany({
+        where: { id: openOrder.id, version: openOrder.version },
+        data: {
+          status: TableOrderStatus.VOIDED,
+          closedAt: new Date(),
+          version: { increment: 1 }
+        }
+      });
+      if (orderUpdated.count === 0) {
+        throw new TableConflictError("Table order version mismatch");
+      }
+    }
+
+    // Reset table status to VACANT
+    const tableUpdated = await tx.restaurantTable.updateMany({
+      where: { id: tableId, version: table.version },
+      data: {
+        status: TableStatus.VACANT,
+        currentTag: null,
+        version: { increment: 1 }
+      }
+    });
+    if (tableUpdated.count === 0) {
+      throw new TableConflictError("Table was modified by another session");
+    }
+
+    await logAction(
+      userId,
+      "VACATE_TABLE",
+      "RestaurantTable",
+      tableId,
+      { tableId, openOrderId: openOrder?.id || null, reason: reason || "Customer left without ordering" },
+      tx
+    );
+
+    // Invalidate caches
+    serverCache.invalidate("inventory");
+    serverCache.invalidate("dashboard");
+
+    return { success: true };
+  }, { maxWait: 5000, timeout: 15000 });
+}
+

@@ -9,6 +9,7 @@ import { getMenuItemImage } from "@/lib/menu-images";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Modal, Sheet } from "@/components/ui/modal-sheet";
+import { CustomerCreditSyncWidget } from "@/components/ui/customer-credit-sync";
 import { cn } from "@/lib/utils";
 import {
   Coffee,
@@ -547,6 +548,30 @@ export default function TablesPage() {
     },
     onError: handleMutationError
   });
+
+  // Vacate / Reset Table Status (When customer leaves or no order made)
+  const vacateTableMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason?: string }) => {
+      const res = await fetch(`/api/tables/${id}/vacate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Vacate table failed (${res.status})`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setActionError(null);
+      setDetailOpen(false);
+      setSelectedTableId(null);
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
+    },
+    onError: handleMutationError
+  });
+
 
   // Create, Update, Delete table mutations
   const createTableMutation = useMutation({
@@ -1262,13 +1287,30 @@ export default function TablesPage() {
                 <span>Add Items</span>
               </button>
             </div>
-            {activeItems.length > 0 && (
+            {activeItems.length > 0 ? (
               <button
                 onClick={() => setSettleModalOpen(true)}
                 className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-control shadow-md hover:bg-primary-hover transition-colors"
               >
                 <CreditCard className="h-4 w-4" />
                 <span>Checkout & Settle (Rs. {finalTotal.toFixed(0)})</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  if (selectedTableId) {
+                    vacateTableMutation.mutate({ id: selectedTableId, reason: "Customer left without ordering" });
+                  }
+                }}
+                disabled={vacateTableMutation.isPending}
+                className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-success/15 hover:bg-success/25 text-success border border-success/30 text-xs font-extrabold rounded-control transition-colors disabled:opacity-50"
+              >
+                {vacateTableMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle className="h-4 w-4" />
+                )}
+                <span>Make Table Vacant (No Orders Made)</span>
               </button>
             )}
           </div>
@@ -1286,7 +1328,31 @@ export default function TablesPage() {
                 <span className="text-[10px] uppercase font-bold text-ink-muted tracking-wider block">Current Tag</span>
                 <span className="font-extrabold text-sm text-ink">{tableDetail?.currentTag || "No tag specified"}</span>
               </div>
-              <StatusBadge status={tableDetail?.status || "VACANT"} />
+              <div className="flex items-center gap-2">
+                <StatusBadge status={tableDetail?.status || "VACANT"} />
+                {tableDetail?.status === "OCCUPIED" && (
+                  <button
+                    onClick={() => {
+                      const msg = activeItems.length > 0
+                        ? `Are you sure you want to mark '${tableDetail.name}' as Vacant? Any active items will be cancelled without billing.`
+                        : `Mark '${tableDetail.name}' as Vacant?`;
+                      if (confirm(msg)) {
+                        vacateTableMutation.mutate({ id: selectedTableId! });
+                      }
+                    }}
+                    disabled={vacateTableMutation.isPending}
+                    className="px-2.5 py-1 bg-surface-sunken hover:bg-border text-ink text-xs font-bold rounded-control transition-colors flex items-center gap-1 border border-border"
+                    title="Toggle Table Status to Vacant"
+                  >
+                    {vacateTableMutation.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <XCircle className="h-3 w-3 text-danger" />
+                    )}
+                    <span>Make Vacant</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Action/Service warnings */}
@@ -1338,14 +1404,39 @@ export default function TablesPage() {
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-12 text-xs text-ink-muted italic border border-dashed border-border rounded-card bg-surface-sunken/20">
-                  No active items currently added on this table order.
+                <div className="text-center py-8 px-4 text-xs text-ink-muted border border-dashed border-border rounded-card bg-surface-sunken/30 space-y-3">
+                  <div className="mx-auto h-10 w-10 rounded-full bg-border/40 flex items-center justify-center text-ink-muted">
+                    <Utensils className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-ink">No active items currently added on this table order.</p>
+                    <p className="text-[11px] text-ink-muted mt-1">
+                      If customer left without asking for food or services, you can make this table vacant again.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (selectedTableId) {
+                        vacateTableMutation.mutate({ id: selectedTableId, reason: "Customer left without ordering" });
+                      }
+                    }}
+                    disabled={vacateTableMutation.isPending}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-success/15 hover:bg-success/25 text-success border border-success/30 text-xs font-extrabold rounded-control transition-colors shadow-xs"
+                  >
+                    {vacateTableMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle className="h-3.5 w-3.5" />
+                    )}
+                    <span>Make Table Vacant Again</span>
+                  </button>
                 </div>
               )}
             </div>
           </div>
         )}
       </Sheet>
+
 
       {/* MODAL 3: ADD ITEMS (POS GRID IFRAME) */}
       <Modal
@@ -1760,6 +1851,19 @@ export default function TablesPage() {
               />
             </div>
           </div>
+
+          {/* Customer Credit Sync & Balance Alert */}
+          {phone.trim().length >= 3 && (
+            <CustomerCreditSyncWidget
+              phone={phone}
+              onCustomerFound={({ customerName: foundName }) => {
+                if (!customerName && foundName) {
+                  setCustomerName(foundName);
+                }
+              }}
+            />
+          )}
+
 
           {/* Pricing Totals Section */}
           <div className="space-y-2 border-t border-border/50 pt-3 text-xs">

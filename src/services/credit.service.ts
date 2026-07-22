@@ -11,9 +11,31 @@ export interface CreditCustomerSummary {
   isOverdue: boolean;
 }
 
+export interface CustomerCreditLookupResult {
+  customerName: string;
+  phone: string;
+  totalOutstanding: number;
+  isOverdue: boolean;
+  activeInvoicesCount: number;
+  sectionBreakdown: {
+    pos: number;
+    tables: number;
+    rooms: number;
+  };
+  recentInvoices: Array<{
+    id: string;
+    source: CreditSource;
+    amount: number;
+    outstanding: number;
+    status: CreditStatus;
+    givenDate: Date;
+    dueDate: Date;
+  }>;
+}
+
 /**
- * Creates a new credit ledger entry, or merges the amount into an existing PENDING credit ledger entry
- * for the same customer phone number.
+ * Creates a new credit ledger entry for a sales transaction, keeping exact source attribution.
+ * Phone numbers are normalized for unified customer credit aggregation across POS, Tables, and Rooms.
  */
 export async function upsertCreditEntry(
   tx: any,
@@ -23,40 +45,151 @@ export async function upsertCreditEntry(
   sourceId: string,
   amount: number
 ): Promise<any> {
-  // Find any existing PENDING credit ledger entry for this phone number
+  const normalizedPhone = phone.trim();
+  const normalizedName = customerName.trim();
+
+  // Find if a credit ledger entry already exists for this exact source transaction
   const existing = await tx.creditLedger.findFirst({
     where: {
-      phone,
-      status: CreditStatus.PENDING
+      source,
+      sourceId,
     }
   });
 
   if (existing) {
-    // Merge: update the existing entry's amount
+    // Update existing transaction's total & customer details
     const updated = await tx.creditLedger.update({
       where: { id: existing.id },
       data: {
-        amount: Number(existing.amount) + amount,
+        customerName: normalizedName,
+        phone: normalizedPhone,
+        amount,
       }
     });
     return updated;
   } else {
-    // Create new entry
+    // Create new distinct credit transaction entry
     const created = await tx.creditLedger.create({
       data: {
-        customerName,
-        phone,
+        customerName: normalizedName,
+        phone: normalizedPhone,
         source,
         sourceId,
         amount,
         givenDate: new Date(),
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default due date
         status: CreditStatus.PENDING
       }
     });
     return created;
   }
 }
+
+/**
+ * Performs a comprehensive credit lookup by customer phone number across all sales sections
+ * (POS Quick Sell, Table Sales, Rooms Lodging), returning accumulated sum total and section breakdown.
+ */
+export async function getCustomerCreditLookup(
+  phone: string
+): Promise<CustomerCreditLookupResult> {
+  const normalizedPhone = phone.trim();
+  if (!normalizedPhone) {
+    return {
+      customerName: "",
+      phone: "",
+      totalOutstanding: 0,
+      isOverdue: false,
+      activeInvoicesCount: 0,
+      sectionBreakdown: { pos: 0, tables: 0, rooms: 0 },
+      recentInvoices: []
+    };
+  }
+
+  const ledgers = await prisma.creditLedger.findMany({
+    where: {
+      phone: { equals: normalizedPhone, mode: "insensitive" }
+    },
+    include: {
+      payments: {
+        select: { amount: true }
+      }
+    },
+    orderBy: {
+      givenDate: "desc"
+    }
+  });
+
+  const now = new Date();
+  let customerName = "";
+  let totalOutstanding = 0;
+  let isOverdue = false;
+  let activeInvoicesCount = 0;
+
+  const sectionBreakdown = {
+    pos: 0,
+    tables: 0,
+    rooms: 0
+  };
+
+  const recentInvoices: Array<{
+    id: string;
+    source: CreditSource;
+    amount: number;
+    outstanding: number;
+    status: CreditStatus;
+    givenDate: Date;
+    dueDate: Date;
+  }> = [];
+
+  for (const ledger of ledgers) {
+    if (!customerName && ledger.customerName) {
+      customerName = ledger.customerName;
+    }
+
+    const paidAmount = ledger.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const outstanding = Math.max(0, Number(ledger.amount) - paidAmount);
+
+    const isUnsettled = ledger.status === CreditStatus.PENDING || ledger.status === CreditStatus.PARTIAL;
+
+    if (isUnsettled && outstanding > 0) {
+      activeInvoicesCount++;
+      totalOutstanding += outstanding;
+
+      if (new Date(ledger.dueDate) < now) {
+        isOverdue = true;
+      }
+
+      if (ledger.source === CreditSource.QUICK_SELL) {
+        sectionBreakdown.pos += outstanding;
+      } else if (ledger.source === CreditSource.TABLE_SALE) {
+        sectionBreakdown.tables += outstanding;
+      } else if (ledger.source === CreditSource.ROOM_STAY) {
+        sectionBreakdown.rooms += outstanding;
+      }
+    }
+
+    recentInvoices.push({
+      id: ledger.id,
+      source: ledger.source,
+      amount: Number(ledger.amount),
+      outstanding,
+      status: ledger.status,
+      givenDate: ledger.givenDate,
+      dueDate: ledger.dueDate
+    });
+  }
+
+  return {
+    customerName,
+    phone: normalizedPhone,
+    totalOutstanding,
+    isOverdue,
+    activeInvoicesCount,
+    sectionBreakdown,
+    recentInvoices
+  };
+}
+
 
 /**
  * Retrieves credit customers summaries grouped by phone.

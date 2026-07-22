@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { getMenuItemImage } from "@/lib/menu-images";
 import { Modal } from "@/components/ui/modal-sheet";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { CustomerCreditSyncWidget } from "@/components/ui/customer-credit-sync";
 import { Plus, Minus, Trash2, ShoppingCart, Loader2, Printer, XCircle, AlertTriangle, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -595,6 +596,19 @@ export default function PosPage() {
                   />
                 </div>
               </div>
+
+              {/* Customer Credit Sync & Balance Alert */}
+              {phone.trim().length >= 3 && (
+                <CustomerCreditSyncWidget
+                  phone={phone}
+                  onCustomerFound={({ customerName: foundName }) => {
+                    if (!customerName && foundName) {
+                      setCustomerName(foundName);
+                    }
+                  }}
+                />
+              )}
+
 
               {/* Pricing Totals Section */}
               <div className="space-y-2 border-t border-border/50 pt-3 text-xs">

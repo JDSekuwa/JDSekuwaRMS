@@ -8,7 +8,8 @@ import { DataTable } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Modal } from "@/components/ui/modal-sheet";
 import { PaginationControls } from "@/components/ui/pagination-controls";
-import { CreditCard, History, Plus, Scale, Loader2, AlertCircle, Trash2 } from "lucide-react";
+import { CustomerCreditSyncWidget } from "@/components/ui/customer-credit-sync";
+import { CreditCard, History, Plus, Scale, Loader2, AlertCircle, Trash2, ShoppingCart, Utensils, Bed } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CustomerSummary {
@@ -276,6 +277,12 @@ export default function CreditPage() {
                       Deselect
                     </button>
                   </div>
+
+                  {/* Customer Multi-Section Accumulated Credit Widget */}
+                  {selectedPhone && (
+                    <CustomerCreditSyncWidget phone={selectedPhone} />
+                  )}
+
 
                   {isPassbookLoading ? (
                     <div className="flex justify-center py-12">

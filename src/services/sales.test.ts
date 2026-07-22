@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { prisma, superuserPrisma } from "../lib/prisma";
-import { openTableOrder, addItemsToTableOrder, closeTableOrder, createQuickSale } from "./sales.service";
+import { openTableOrder, addItemsToTableOrder, closeTableOrder, createQuickSale, vacateTableOrder } from "./sales.service";
 import { TableStatus, TableOrderStatus, PaymentType, Role } from "../generated/prisma/client";
 import { TableConflictError } from "../lib/errors";
 
@@ -142,4 +142,26 @@ describe("Sales & Table Ordering Service Integration Tests (Stage B-3)", () => {
       data: { currentStock: spiceBefore!.currentStock }
     });
   });
+
+  it("should successfully vacate an open table order when customer leaves without ordering", async () => {
+    // 1. Open table order
+    const order = await openTableOrder(testTableId, "Empty Customer Tag", workerId);
+
+    // Verify table is OCCUPIED
+    let table = await superuserPrisma.restaurantTable.findUnique({ where: { id: testTableId } });
+    expect(table!.status).toBe(TableStatus.OCCUPIED);
+
+    // 2. Vacate table order
+    await vacateTableOrder(testTableId, workerId, "Customer left without ordering");
+
+    // 3. Verify table is restored to VACANT and tag is cleared
+    table = await superuserPrisma.restaurantTable.findUnique({ where: { id: testTableId } });
+    expect(table!.status).toBe(TableStatus.VACANT);
+    expect(table!.currentTag).toBeNull();
+
+    // 4. Verify table order status is VOIDED
+    const voidedOrder = await superuserPrisma.tableOrder.findUnique({ where: { id: order.id } });
+    expect(voidedOrder!.status).toBe(TableOrderStatus.VOIDED);
+  });
 });
+

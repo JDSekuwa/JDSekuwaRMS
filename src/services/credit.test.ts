@@ -6,6 +6,7 @@ import {
   getCustomerLedger,
   recordPayment,
   writeOff,
+  getCustomerCreditLookup,
   CreditCustomerSummary
 } from "./credit.service";
 import { Role, CreditStatus, CreditSource } from "../generated/prisma/client";
@@ -124,4 +125,59 @@ describe("Credit Ledger Service Integration Tests (Stage B-5)", () => {
     });
     expect(updatedLedger!.status).toBe(CreditStatus.WRITTEN_OFF);
   });
+
+  it("should aggregate accumulated credit across POS, Table Sales, and Rooms for a customer phone", async () => {
+    // 1. POS Credit
+    await superuserPrisma.creditLedger.create({
+      data: {
+        customerName: "Rabin Sekuwa",
+        phone: testPhone,
+        source: CreditSource.QUICK_SELL,
+        sourceId: "00000000-0000-0000-0000-000000000010",
+        amount: 500.00,
+        givenDate: new Date(),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        status: CreditStatus.PENDING
+      }
+    });
+
+    // 2. Table Sale Credit
+    await superuserPrisma.creditLedger.create({
+      data: {
+        customerName: "Rabin Sekuwa",
+        phone: testPhone,
+        source: CreditSource.TABLE_SALE,
+        sourceId: "00000000-0000-0000-0000-000000000011",
+        amount: 1200.00,
+        givenDate: new Date(),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        status: CreditStatus.PENDING
+      }
+    });
+
+    // 3. Room Stay Credit
+    await superuserPrisma.creditLedger.create({
+      data: {
+        customerName: "Rabin Sekuwa",
+        phone: testPhone,
+        source: CreditSource.ROOM_STAY,
+        sourceId: "00000000-0000-0000-0000-000000000012",
+        amount: 3500.00,
+        givenDate: new Date(),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        status: CreditStatus.PENDING
+      }
+    });
+
+    const lookup = await getCustomerCreditLookup(testPhone);
+
+    expect(lookup.phone).toBe(testPhone);
+    expect(lookup.customerName).toBe("Rabin Sekuwa");
+    expect(lookup.totalOutstanding).toBe(5200.00); // 500 + 1200 + 3500
+    expect(lookup.activeInvoicesCount).toBe(3);
+    expect(lookup.sectionBreakdown.pos).toBe(500.00);
+    expect(lookup.sectionBreakdown.tables).toBe(1200.00);
+    expect(lookup.sectionBreakdown.rooms).toBe(3500.00);
+  });
 });
+

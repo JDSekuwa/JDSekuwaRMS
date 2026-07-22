@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/ui/page-header";
 import { Modal } from "@/components/ui/modal-sheet";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { CustomerCreditSyncWidget } from "@/components/ui/customer-credit-sync";
 import {
   Bed,
   UserPlus,
@@ -1113,6 +1114,19 @@ export default function RoomsPage() {
             </div>
           </div>
 
+          {/* Customer Credit Sync & Balance Alert */}
+          {phone.trim().length >= 3 && (
+            <CustomerCreditSyncWidget
+              phone={phone}
+              onCustomerFound={({ customerName: foundName }) => {
+                if (!guestName && foundName) {
+                  setGuestName(foundName);
+                }
+              }}
+            />
+          )}
+
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] font-bold text-ink-muted uppercase mb-1">ID Proof Document</label>
@@ -1408,6 +1422,12 @@ export default function RoomsPage() {
                 ))}
               </div>
             </div>
+
+            {/* Customer Credit Sync Widget */}
+            {selectedRoom.activeStay.phone && (
+              <CustomerCreditSyncWidget phone={selectedRoom.activeStay.phone} />
+            )}
+
 
             {checkOutError && (
               <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">{checkOutError}</div>
