@@ -1,0 +1,96 @@
+---
+- name: Deploy JD Sekuwa RMS to Production Server
+  hosts: webservers
+  become: yes
+
+  vars:
+    app_path: "/var/www/jdsekuwa-rms"
+
+  tasks:
+    - name: Update apt packages cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install system prerequisite packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - git
+          - ufw
+        state: present
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker official repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker and Docker Compose plugin
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+
+    - name: Ensure Docker service is running and enabled
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Configure UFW Firewall rules
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - '22'
+        - '80'
+        - '443'
+        - '3000'
+
+    - name: Enable UFW firewall
+      ufw:
+        state: enabled
+
+    - name: Create app installation directory
+      file:
+        path: "{{ app_path }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Copy deployment configuration files
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ app_path }}/{{ item.dest }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      loop:
+        - { src: "../docker-compose.yml", dest: "docker-compose.yml" }
+
+    - name: Build and pull application containers
+      command: docker compose up -d --remove-orphans
+      args:
+        chdir: "{{ app_path }}"
+      become: no
+
+    - name: Verify application container health status
+      command: docker ps --filter "name=jdsekuwa_app"
+      register: docker_ps_output
+
+    - name: Display running container details
+      debug:
+        var: docker_ps_output.stdout_lines
