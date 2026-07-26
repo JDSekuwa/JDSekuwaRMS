@@ -21,6 +21,7 @@ export interface CustomerCreditLookupResult {
     pos: number;
     tables: number;
     rooms: number;
+    openingBalance: number;
   };
   recentInvoices: Array<{
     id: string;
@@ -100,7 +101,7 @@ export async function getCustomerCreditLookup(
       totalOutstanding: 0,
       isOverdue: false,
       activeInvoicesCount: 0,
-      sectionBreakdown: { pos: 0, tables: 0, rooms: 0 },
+      sectionBreakdown: { pos: 0, tables: 0, rooms: 0, openingBalance: 0 },
       recentInvoices: []
     };
   }
@@ -128,7 +129,8 @@ export async function getCustomerCreditLookup(
   const sectionBreakdown = {
     pos: 0,
     tables: 0,
-    rooms: 0
+    rooms: 0,
+    openingBalance: 0
   };
 
   const recentInvoices: Array<{
@@ -165,6 +167,8 @@ export async function getCustomerCreditLookup(
         sectionBreakdown.tables += outstanding;
       } else if (ledger.source === CreditSource.ROOM_STAY) {
         sectionBreakdown.rooms += outstanding;
+      } else if (ledger.source === CreditSource.OPENING_BALANCE) {
+        sectionBreakdown.openingBalance += outstanding;
       }
     }
 
@@ -482,6 +486,85 @@ export async function recordCustomerAccountPayment(
 
     return { totalApplied, affectedInvoicesCount };
   });
+}
+
+/**
+ * Creates an opening balance / legacy customer credit ledger entry for past pre-system dues.
+ */
+export async function createOpeningBalanceEntry(
+  customerName: string,
+  phone: string,
+  amount: number,
+  givenDate?: Date | string,
+  dueDate?: Date | string,
+  recordedById?: string
+): Promise<any> {
+  const normalizedPhone = phone.trim();
+  const normalizedName = customerName.trim();
+
+  if (!normalizedName) {
+    throw new Error("Customer name is required.");
+  }
+  if (!normalizedPhone) {
+    throw new Error("Customer phone number is required.");
+  }
+  if (isNaN(amount) || amount <= 0) {
+    throw new Error("Opening credit amount must be a positive number.");
+  }
+
+  const gDate = givenDate ? new Date(givenDate) : new Date();
+  const dDate = dueDate ? new Date(dueDate) : new Date(gDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const sourceId = crypto.randomUUID();
+
+  if (recordedById) {
+    const profile = await getCachedProfile(recordedById);
+    if (!profile) {
+      throw new Error("User profile not found.");
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      await setSessionContext(tx, profile.role, recordedById);
+
+      const created = await tx.creditLedger.create({
+        data: {
+          customerName: normalizedName,
+          phone: normalizedPhone,
+          source: CreditSource.OPENING_BALANCE,
+          sourceId,
+          amount,
+          givenDate: gDate,
+          dueDate: dDate,
+          status: CreditStatus.PENDING,
+        },
+      });
+
+      await logAction(
+        recordedById,
+        "CREATE_OPENING_CREDIT_BALANCE",
+        "CreditLedger",
+        created.id,
+        { customerName: normalizedName, phone: normalizedPhone, amount },
+        tx
+      );
+
+      return created;
+    });
+  }
+
+  const created = await superuserPrisma.creditLedger.create({
+    data: {
+      customerName: normalizedName,
+      phone: normalizedPhone,
+      source: CreditSource.OPENING_BALANCE,
+      sourceId,
+      amount,
+      givenDate: gDate,
+      dueDate: dDate,
+      status: CreditStatus.PENDING,
+    },
+  });
+
+  return created;
 }
 
 

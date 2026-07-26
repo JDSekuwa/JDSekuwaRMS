@@ -16,7 +16,10 @@ enum Role {
 enum Unit {
   KG
   LITRE
+  ML
   PIECE
+  PACKET
+  PLATE
 }
 
 enum TableStatus {
@@ -52,6 +55,7 @@ enum CreditSource {
   TABLE_SALE
   QUICK_SELL
   ROOM_STAY
+  OPENING_BALANCE
 }
 
 enum CreditStatus {

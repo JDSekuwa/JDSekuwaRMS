@@ -29,7 +29,7 @@ interface CreditLedgerEntry {
   id: string;
   customerName: string;
   phone: string;
-  source: "QUICK_SELL" | "TABLE_SALE" | "ROOM_STAY";
+  source: "QUICK_SELL" | "TABLE_SALE" | "ROOM_STAY" | "OPENING_BALANCE";
   amount: number;
   status: "PENDING" | "PARTIAL" | "PAID" | "WRITTEN_OFF";
   dueDate: string;
@@ -61,6 +61,15 @@ export default function CreditPage() {
   const [masterSettleModalOpen, setMasterSettleModalOpen] = useState(false);
   const [masterSettleAmount, setMasterSettleAmount] = useState("");
   const [masterSettleError, setMasterSettleError] = useState<string | null>(null);
+
+  // Opening Balance / Legacy Customer modal parameters
+  const [openingModalOpen, setOpeningModalOpen] = useState(false);
+  const [openingName, setOpeningName] = useState("");
+  const [openingPhone, setOpeningPhone] = useState("");
+  const [openingAmount, setOpeningAmount] = useState("");
+  const [openingGivenDate, setOpeningGivenDate] = useState("");
+  const [openingDueDate, setOpeningDueDate] = useState("");
+  const [openingError, setOpeningError] = useState<string | null>(null);
 
   // 1. Fetch outstanding credit customer summaries list
   const { data: paginatedData, isLoading: isCustLoading } = useQuery<{ data: CustomerSummary[]; pagination: any }>({
@@ -162,6 +171,64 @@ export default function CreditPage() {
     }
   });
 
+  // 6. Mutation: Create Legacy Customer Opening Credit Balance
+  const openingMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const res = await fetch("/api/credit/opening-balance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Failed to record opening credit balance");
+      }
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["credit-customers"] });
+      queryClient.invalidateQueries({ queryKey: ["credit-passbook", variables.phone] });
+      queryClient.invalidateQueries({ queryKey: ["customer-credit-lookup", variables.phone] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      setSelectedPhone(variables.phone);
+      setSelectedCustomerName(variables.customerName);
+      setOpeningModalOpen(false);
+      setOpeningName("");
+      setOpeningPhone("");
+      setOpeningAmount("");
+      setOpeningGivenDate("");
+      setOpeningDueDate("");
+      setOpeningError(null);
+      refetchPassbook();
+    },
+    onError: (err: any) => {
+      setOpeningError(err.message || "Failed to record legacy customer past dues");
+    }
+  });
+
+  const handleOpeningSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!openingName.trim() || !openingPhone.trim() || !openingAmount) {
+      setOpeningError("Please fill out customer name, phone number, and opening debt amount.");
+      return;
+    }
+
+    const amount = parseFloat(openingAmount);
+    if (isNaN(amount) || amount <= 0) {
+      setOpeningError("Opening debt amount must be a positive number.");
+      return;
+    }
+
+    setOpeningError(null);
+    openingMutation.mutate({
+      customerName: openingName.trim(),
+      phone: openingPhone.trim(),
+      amount,
+      givenDate: openingGivenDate ? new Date(openingGivenDate).toISOString() : undefined,
+      dueDate: openingDueDate ? new Date(openingDueDate).toISOString() : undefined,
+    });
+  };
+
   const handleMasterSettleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPhone) return;
@@ -236,6 +303,23 @@ export default function CreditPage() {
       <PageHeader
         title="Credit Accounts Ledger"
         description="Monitor outstanding customer invoices, track partial repayments, and audit credit summaries."
+        actions={
+          <button
+            onClick={() => {
+              setOpeningName("");
+              setOpeningPhone("");
+              setOpeningAmount("");
+              setOpeningGivenDate(new Date().toISOString().split("T")[0]);
+              setOpeningDueDate("");
+              setOpeningError(null);
+              setOpeningModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover active:scale-[0.99] transition-all"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Past Due / Legacy Customer</span>
+          </button>
+        }
       />
 
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -626,6 +710,127 @@ export default function CreditPage() {
           {masterSettleError && (
             <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
               {masterSettleError}
+            </div>
+          )}
+        </form>
+      </Modal>
+
+      {/* MODAL 6: ADD LEGACY CUSTOMER OPENING BALANCE */}
+      <Modal
+        isOpen={openingModalOpen}
+        onClose={() => {
+          setOpeningModalOpen(false);
+          setOpeningError(null);
+        }}
+        title="Record Legacy Customer Past Dues (Pre-System Opening Balance)"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setOpeningModalOpen(false)}
+              className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="opening-balance-form"
+              disabled={openingMutation.isPending}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {openingMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Save Past Due Record</span>
+            </button>
+          </>
+        }
+      >
+        <form id="opening-balance-form" onSubmit={handleOpeningSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
+              Customer Full Name *
+            </label>
+            <input
+              type="text"
+              value={openingName}
+              onChange={(e) => setOpeningName(e.target.value)}
+              placeholder="e.g. Ramesh Sharma"
+              required
+              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
+              Mobile Phone Number *
+            </label>
+            <input
+              type="text"
+              value={openingPhone}
+              onChange={(e) => setOpeningPhone(e.target.value)}
+              placeholder="e.g. 9841000000"
+              required
+              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary font-mono"
+            />
+            <span className="text-[10px] text-ink-muted mt-1 block">
+              Enter customer mobile number. If customer already exists, this record will be appended to their unified credit passbook.
+            </span>
+          </div>
+
+          {/* Live lookup hint if phone entered */}
+          {openingPhone.trim().length >= 3 && (
+            <CustomerCreditSyncWidget phone={openingPhone} />
+          )}
+
+          <div>
+            <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
+              Opening Outstanding Due Amount (NPR) *
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={openingAmount}
+              onChange={(e) => setOpeningAmount(e.target.value)}
+              placeholder="e.g. 3500.00"
+              required
+              className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary font-mono font-bold"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
+                Debt Incurred Date
+              </label>
+              <input
+                type="date"
+                value={openingGivenDate}
+                onChange={(e) => setOpeningGivenDate(e.target.value)}
+                className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+              />
+              <span className="text-[10px] text-ink-muted mt-1 block">
+                Original date when credit was taken.
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
+                Payment Due Date
+              </label>
+              <input
+                type="date"
+                value={openingDueDate}
+                onChange={(e) => setOpeningDueDate(e.target.value)}
+                className="w-full rounded-control border border-border px-3 py-2 text-sm text-ink outline-none focus:border-primary"
+              />
+              <span className="text-[10px] text-ink-muted mt-1 block">
+                Defaults to 30 days if left blank.
+              </span>
+            </div>
+          </div>
+
+          {openingError && (
+            <div className="rounded-control border border-danger/25 bg-danger/10 p-2.5 text-xs text-danger">
+              {openingError}
             </div>
           )}
         </form>

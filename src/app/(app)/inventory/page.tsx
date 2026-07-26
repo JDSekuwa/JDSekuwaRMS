@@ -802,7 +802,10 @@ export default function InventoryPage() {
                 >
                   <option value="KG">KG (Kilogram)</option>
                   <option value="LITRE">LITRE (Litre)</option>
+                  <option value="ML">ML (Milliliter)</option>
                   <option value="PIECE">PIECE (Piece)</option>
+                  <option value="PACKET">PACKET (Packet)</option>
+                  <option value="PLATE">PLATE (Plate)</option>
                 </select>
               </div>
 

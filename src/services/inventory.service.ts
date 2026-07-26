@@ -13,7 +13,7 @@ function normalizeName(name: string): string {
   return name
     .toLowerCase()
     .replace(
-      /\b(canned|can|bottle|bottled|glass|pack|packed|plate|full|half|portion|pieces?|litres?|litres?|kg|kilogram|kilograms?)\b/gi,
+      /\b(canned|can|bottle|bottled|glass|pack|packed|packet|packets|plate|plates|full|half|portion|pieces?|litres?|litres?|ml|milliliter|milliliters?|kg|kilogram|kilograms?)\b/gi,
       ""
     )
     .replace(/[^a-z0-9]/gi, "");

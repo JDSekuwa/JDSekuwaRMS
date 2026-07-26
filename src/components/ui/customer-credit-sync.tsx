@@ -2,7 +2,7 @@
 
 import React, { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, AlertTriangle, CheckCircle2, Loader2, Sparkles, UserCheck, Utensils, ShoppingCart, Bed } from "lucide-react";
+import { CreditCard, AlertTriangle, CheckCircle2, Loader2, Sparkles, UserCheck, Utensils, ShoppingCart, Bed, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CustomerCreditLookupData {
@@ -15,6 +15,7 @@ interface CustomerCreditLookupData {
     pos: number;
     tables: number;
     rooms: number;
+    openingBalance?: number;
   };
 }
 
@@ -128,6 +129,12 @@ export function CustomerCreditSyncWidget({ phone, onCustomerFound, className }: 
                 <span>Rooms: Rs. {data.sectionBreakdown.rooms.toFixed(0)}</span>
               </span>
             )}
+            {data.sectionBreakdown.openingBalance && data.sectionBreakdown.openingBalance > 0 ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 border border-amber-500/20 text-[9px] font-bold">
+                <History className="h-2.5 w-2.5" />
+                <span>Past Dues: Rs. {data.sectionBreakdown.openingBalance.toFixed(0)}</span>
+              </span>
+            ) : null}
             <span className="text-[9px] font-semibold opacity-70 ml-auto">
               {data.activeInvoicesCount} active invoice{data.activeInvoicesCount > 1 ? "s" : ""}
             </span>
