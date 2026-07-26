@@ -7,6 +7,7 @@ import { z } from "zod";
 const adjustSchema = z.object({
   qtyDelta: z.number(),
   reason: z.string().min(1, "Reason is required"),
+  costPrice: z.number().optional().nullable(),
 });
 
 export async function POST(
@@ -29,9 +30,15 @@ export async function POST(
       );
     }
 
-    const { qtyDelta, reason } = result.data;
+    const { qtyDelta, reason, costPrice } = result.data;
 
-    const data = await adjustStock(rawItemId, qtyDelta, reason, profile.id);
+    const data = await adjustStock(
+      rawItemId,
+      qtyDelta,
+      reason,
+      profile.id,
+      costPrice !== null && costPrice !== undefined ? Number(costPrice) : undefined
+    );
     return NextResponse.json(data);
   } catch (error: any) {
     const status = error.statusCode || 500;

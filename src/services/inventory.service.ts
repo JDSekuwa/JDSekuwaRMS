@@ -1,8 +1,8 @@
 import { prisma, superuserPrisma } from "../lib/prisma";
-import { Role } from "../generated/prisma/client";
+import { Role, Unit } from "../generated/prisma/client";
 import { setSessionContext, getCachedProfile } from "./auth.service";
 import { logAction } from "./audit.service";
-import { InsufficientStockError } from "../lib/errors";
+import { InsufficientStockError, ForbiddenError } from "../lib/errors";
 
 /**
  * Normalizes a raw item or menu item name by stripping common packaging words,
@@ -109,41 +109,45 @@ export async function getInventoryList(
 }
 
 /**
- * Performs stock adjustments and registers them inside a transaction.
+ * Performs stock adjustments and optional cost price updates inside a transaction.
  */
 export async function adjustStock(
   rawItemId: string,
   qtyDelta: number,
   reason: string,
-  userId: string
+  userId: string,
+  newCostPrice?: number
 ): Promise<any> {
-  // Use superuser client to resolve the user profile bypass RLS
   const profile = await getCachedProfile(userId);
 
   if (!profile) {
     throw new Error("Profile not found.");
   }
 
-  // Run updates on the standard connection.
-  // The app_user role has SELECT/UPDATE privileges on raw_items, but RLS gates it.
   return await prisma.$transaction(async (tx) => {
-    // Set RLS variables
     await setSessionContext(tx, profile.role, userId);
 
-    // Atomic increment/decrement
+    const updateData: any = {
+      currentStock: {
+        increment: qtyDelta,
+      },
+    };
+
+    // If newCostPrice is provided and user is Admin/SuperAdmin, update costPrice too
+    if (newCostPrice !== undefined && newCostPrice !== null && !isNaN(newCostPrice) && (profile.role === Role.ADMIN || profile.role === Role.SUPER_ADMIN)) {
+      updateData.costPrice = newCostPrice;
+    }
+
     const rawItem = await tx.rawItem.update({
       where: { id: rawItemId },
-      data: {
-        currentStock: {
-          increment: qtyDelta,
-        },
-      },
+      data: updateData,
       select: {
         id: true,
         name: true,
         unit: true,
         currentStock: true,
         minThreshold: true,
+        costPrice: true,
       }
     });
 
@@ -156,19 +160,177 @@ export async function adjustStock(
       },
     });
 
-    // Write audit log inside the same transaction
     await logAction(
       userId,
       "ADJUST_STOCK",
       "RawItem",
       rawItemId,
-      { qtyDelta, reason, adjustmentId: adjustment.id },
+      { qtyDelta, reason, newCostPrice, adjustmentId: adjustment.id },
       tx
     );
 
     return { rawItem, adjustment };
   });
 }
+
+export interface UpdateRawItemInput {
+  name?: string;
+  unit?: Unit | string;
+  minThreshold?: number;
+  costPrice?: number;
+}
+
+/**
+ * Updates a raw item details (name, unit, minThreshold, costPrice). Admin/Super Admin only.
+ */
+export async function updateRawItem(
+  id: string,
+  data: UpdateRawItemInput,
+  userId: string
+): Promise<any> {
+  const profile = await getCachedProfile(userId);
+  if (!profile) {
+    throw new Error("User profile not found");
+  }
+
+  if (profile.role !== Role.ADMIN && profile.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenError("Only Admins and Super Admins can update raw inventory items");
+  }
+
+  return await superuserPrisma.$transaction(async (tx) => {
+    const existing = await tx.rawItem.findUnique({
+      where: { id }
+    });
+
+    if (!existing) {
+      throw new Error("Raw ingredient not found");
+    }
+
+    const updatePayload: any = {};
+    if (data.name !== undefined) updatePayload.name = data.name.trim();
+    if (data.unit !== undefined) updatePayload.unit = data.unit as Unit;
+    if (data.minThreshold !== undefined) updatePayload.minThreshold = Number(data.minThreshold);
+    if (data.costPrice !== undefined) updatePayload.costPrice = Number(data.costPrice);
+
+    const updatedItem = await tx.rawItem.update({
+      where: { id },
+      data: updatePayload
+    });
+
+    await logAction(
+      userId,
+      "UPDATE_RAW_ITEM",
+      "RawItem",
+      id,
+      { changes: updatePayload },
+      tx
+    );
+
+    return updatedItem;
+  });
+}
+
+/**
+ * Deletes a raw inventory item. Admin/Super Admin only.
+ * Fails gracefully if referenced by recipes or purchase history.
+ */
+export async function deleteRawItem(
+  id: string,
+  userId: string
+): Promise<{ success: boolean }> {
+  const profile = await getCachedProfile(userId);
+  if (!profile) {
+    throw new Error("User profile not found");
+  }
+
+  if (profile.role !== Role.ADMIN && profile.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenError("Only Admins and Super Admins can delete raw inventory items");
+  }
+
+  return await superuserPrisma.$transaction(async (tx) => {
+    const existing = await tx.rawItem.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            recipeLines: true,
+            purchases: true,
+            stockAdjustments: true,
+          }
+        }
+      }
+    });
+
+    if (!existing) {
+      throw new Error("Raw ingredient not found");
+    }
+
+    if (existing._count.recipeLines > 0) {
+      throw new ForbiddenError(
+        `Cannot delete '${existing.name}': It is configured in ${existing._count.recipeLines} recipe(s). Remove it from recipes first.`
+      );
+    }
+
+    if (existing._count.purchases > 0) {
+      throw new ForbiddenError(
+        `Cannot delete '${existing.name}': It has ${existing._count.purchases} purchase history record(s).`
+      );
+    }
+
+    await tx.rawItem.delete({
+      where: { id }
+    });
+
+    await logAction(
+      userId,
+      "DELETE_RAW_ITEM",
+      "RawItem",
+      id,
+      { name: existing.name },
+      tx
+    );
+
+    return { success: true };
+  });
+}
+
+/**
+ * Fetches the most recent purchase record for a raw item to power Smart Reorder.
+ */
+export async function getLastPurchaseForItem(
+  rawItemId: string,
+  userId: string
+): Promise<{ qty: number; unitCost: number; supplierName: string | null; purchasedAt: Date } | null> {
+  const profile = await getCachedProfile(userId);
+  if (!profile) {
+    throw new Error("User profile not found");
+  }
+
+  if (profile.role !== Role.ADMIN && profile.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenError("Only Admins and Super Admins can query purchase history");
+  }
+
+  const lastPurchase = await prisma.purchase.findFirst({
+    where: { rawItemId },
+    orderBy: { purchasedAt: "desc" },
+    select: {
+      qty: true,
+      unitCost: true,
+      supplierName: true,
+      purchasedAt: true,
+    }
+  });
+
+  if (!lastPurchase) return null;
+
+  return {
+    qty: Number(lastPurchase.qty),
+    unitCost: Number(lastPurchase.unitCost),
+    supplierName: lastPurchase.supplierName,
+    purchasedAt: lastPurchase.purchasedAt,
+  };
+}
+
 
 /**
  * Creates or updates recipe ingredient lines. Admin/Super Admin only.
