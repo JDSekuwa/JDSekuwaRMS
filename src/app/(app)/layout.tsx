@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -87,8 +87,18 @@ function UserAvatar({ name, imageUrl, className }: AvatarProps) {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, role, loading, signOut } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  // Active hover/touch route prefetching for sub-10ms navigation response
+  const handlePrefetch = useCallback((href: string) => {
+    try {
+      router.prefetch(href);
+    } catch (_) {
+      // Ignore background prefetch error if route is already loaded
+    }
+  }, [router]);
 
   // Fetch critical low-stock items in real time
   const { data: lowStockItems = [] } = useQuery({
@@ -98,7 +108,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       if (!res.ok) throw new Error("Failed to load notifications");
       return res.json();
     },
-    refetchInterval: 10000, // Refresh notifications every 10 seconds
+    staleTime: 15 * 1000,
+    refetchInterval: 20000,
   });
 
   // Fetch current user profile dynamically to load dynamic avatar edits
@@ -108,7 +119,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       const res = await fetch("/api/users/me");
       if (!res.ok) throw new Error("Failed to load current profile");
       return res.json();
-    }
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
   });
 
   if (loading) {
@@ -197,6 +210,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={true}
+                onMouseEnter={() => handlePrefetch(item.href)}
+                onTouchStart={() => handlePrefetch(item.href)}
                 className={cn(
                   "flex items-center gap-3.5 px-3 py-2.5 rounded-control text-sm font-medium transition-all group relative",
                   isActive
@@ -410,6 +426,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Link
               key={item.href}
               href={item.href}
+              prefetch={true}
+              onTouchStart={() => handlePrefetch(item.href)}
               className={cn(
                 "flex flex-col items-center justify-center gap-1 flex-1 py-1 text-[10px] font-semibold transition-colors",
                 isActive ? "text-primary" : "text-ink-muted hover:text-primary"
