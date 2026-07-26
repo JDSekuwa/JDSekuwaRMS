@@ -124,8 +124,13 @@ export async function adjustStock(
     throw new Error("Profile not found.");
   }
 
-  return await prisma.$transaction(async (tx) => {
-    await setSessionContext(tx, profile.role, userId);
+  const isAdmin = profile.role === Role.ADMIN || profile.role === Role.SUPER_ADMIN;
+  const prismaClient = isAdmin ? superuserPrisma : prisma;
+
+  return await prismaClient.$transaction(async (tx) => {
+    if (!isAdmin) {
+      await setSessionContext(tx, profile.role, userId);
+    }
 
     const updateData: any = {
       currentStock: {
@@ -134,21 +139,26 @@ export async function adjustStock(
     };
 
     // If newCostPrice is provided and user is Admin/SuperAdmin, update costPrice too
-    if (newCostPrice !== undefined && newCostPrice !== null && !isNaN(newCostPrice) && (profile.role === Role.ADMIN || profile.role === Role.SUPER_ADMIN)) {
+    if (newCostPrice !== undefined && newCostPrice !== null && !isNaN(newCostPrice) && isAdmin) {
       updateData.costPrice = newCostPrice;
+    }
+
+    const selectFields: any = {
+      id: true,
+      name: true,
+      unit: true,
+      currentStock: true,
+      minThreshold: true,
+    };
+
+    if (isAdmin) {
+      selectFields.costPrice = true;
     }
 
     const rawItem = await tx.rawItem.update({
       where: { id: rawItemId },
       data: updateData,
-      select: {
-        id: true,
-        name: true,
-        unit: true,
-        currentStock: true,
-        minThreshold: true,
-        costPrice: true,
-      }
+      select: selectFields,
     });
 
     const adjustment = await tx.stockAdjustment.create({

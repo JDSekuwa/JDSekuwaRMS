@@ -29,8 +29,17 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/api/auth/") ||
     path.startsWith("/_next/") ||
     path === "/favicon.ico" ||
+    path === "/logo.png" ||
+    path === "/icon.png" ||
     path.startsWith("/static/") ||
-    path.match(/\.(png|jpg|jpeg|gif|svg|ico)$/) !== null;
+    path.startsWith("/uploads/") ||
+    path.endsWith(".png") ||
+    path.endsWith(".jpg") ||
+    path.endsWith(".jpeg") ||
+    path.endsWith(".gif") ||
+    path.endsWith(".svg") ||
+    path.endsWith(".ico") ||
+    path.endsWith(".webp");
 
   if (isPublicPath) {
     return NextResponse.next();
@@ -232,8 +241,8 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Run middleware on all paths except static assets
+  // Run middleware on all paths except static assets & images
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!_next/static|_next/image|favicon.ico|logo.png|icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

@@ -1,21 +1,28 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 
 function LoginContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [redirectPath, setRedirectPath] = useState("/");
   const [embers, setEmbers] = useState<Array<{ id: number; left: string; size: string; delay: string; duration: string }>>([]);
 
-  // Generate sparks for the charcoal grill effect
+  // Read query parameters & generate sparks safely without suspending page render
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get("redirect");
+      if (redirect) {
+        setRedirectPath(redirect);
+      }
+    }
     const generated = Array.from({ length: 25 }).map((_, i) => ({
       id: i,
       left: `${Math.random() * 100}%`,
@@ -25,8 +32,6 @@ function LoginContent() {
     }));
     setEmbers(generated);
   }, []);
-
-  const redirectPath = searchParams?.get("redirect") || "/";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -235,13 +240,5 @@ function LoginContent() {
 }
 
 export default function LoginPage() {
-  return (
-    <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-[#FAFAFA]">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-orange-500 border-t-transparent" />
-      </div>
-    }>
-      <LoginContent />
-    </Suspense>
-  );
+  return <LoginContent />;
 }
