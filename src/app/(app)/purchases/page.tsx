@@ -49,13 +49,23 @@ interface PurchaseRecord {
   };
 }
 
-interface GroupedBatch {
-  key: string;
-  supplierName: string;
+interface SubOrderBatch {
+  orderTimeKey: string;
   purchasedAt: string;
   recordedByRole: string;
   totalCost: number;
   items: PurchaseRecord[];
+}
+
+interface GroupedBatch {
+  key: string;
+  supplierName: string;
+  purchasedAt: string;
+  dateKey: string;
+  recordedByRole: string;
+  totalCost: number;
+  items: PurchaseRecord[];
+  subOrders: SubOrderBatch[];
 }
 
 export default function PurchasesPage() {
@@ -80,6 +90,7 @@ export default function PurchasesPage() {
   // Record Purchase Modal form states
   const [recordModalOpen, setRecordModalOpen] = useState(false);
   const [supplierName, setSupplierName] = useState("");
+  const [prefilledVendor, setPrefilledVendor] = useState<string | null>(null);
   interface PurchaseLine {
     rawItemId: string;
     qty: string;
@@ -135,30 +146,63 @@ export default function PurchasesPage() {
   const purchases = paginatedData?.data || [];
   const pagination = paginatedData?.pagination;
 
-  // Group purchases by Vendor + PurchasedAt Timestamp
+  // Group purchases by Vendor + Purchase Date (YYYY-MM-DD) to segregate orders by date
   const groupedBatches: GroupedBatch[] = React.useMemo(() => {
     const map = new Map<string, GroupedBatch>();
 
+    const getRecordDateKey = (dateStr: string) => {
+      if (!dateStr) return "no-date";
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr.substring(0, 10);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
     for (const record of purchases) {
       const vendorName = record.supplierName ? record.supplierName.trim() : "Unspecified Vendor";
-      // Group by vendor name + minute timestamp to aggregate multi-item purchase entries
-      const timeKey = record.purchasedAt ? record.purchasedAt.substring(0, 16) : "no-date";
-      const key = `${vendorName}__${timeKey}`;
+      const dateKey = getRecordDateKey(record.purchasedAt);
+      const key = `${vendorName}__${dateKey}`;
 
       if (!map.has(key)) {
         map.set(key, {
           key,
           supplierName: vendorName,
           purchasedAt: record.purchasedAt,
+          dateKey,
           recordedByRole: record.recordedBy?.role || "USER",
           totalCost: 0,
-          items: []
+          items: [],
+          subOrders: []
         });
       }
 
       const batch = map.get(key)!;
       batch.items.push(record);
       batch.totalCost += Number(record.totalCost || 0);
+
+      if (new Date(record.purchasedAt).getTime() > new Date(batch.purchasedAt).getTime()) {
+        batch.purchasedAt = record.purchasedAt;
+      }
+    }
+
+    // Sub-group items by order timestamp (down to the minute) within each vendor date batch
+    for (const batch of map.values()) {
+      const subMap = new Map<string, SubOrderBatch>();
+      for (const item of batch.items) {
+        const timeKey = item.purchasedAt ? item.purchasedAt.substring(0, 16) : "no-time";
+        if (!subMap.has(timeKey)) {
+          subMap.set(timeKey, {
+            orderTimeKey: timeKey,
+            purchasedAt: item.purchasedAt,
+            recordedByRole: item.recordedBy?.role || "USER",
+            totalCost: 0,
+            items: []
+          });
+        }
+        const subBatch = subMap.get(timeKey)!;
+        subBatch.items.push(item);
+        subBatch.totalCost += Number(item.totalCost || 0);
+      }
+      batch.subOrders = Array.from(subMap.values());
     }
 
     return Array.from(map.values());
@@ -169,6 +213,23 @@ export default function PurchasesPage() {
       ...prev,
       [key]: !prev[key]
     }));
+  };
+
+  const handleOpenRecordPurchase = () => {
+    setPrefilledVendor(null);
+    setSupplierName("");
+    setLines([{ rawItemId: "", qty: "", unitCost: "" }]);
+    setRecordError(null);
+    setRecordModalOpen(true);
+  };
+
+  const handleOpenAddOrderForVendor = (vendorName: string) => {
+    const cleanVendor = vendorName === "Unspecified Vendor" ? "" : vendorName;
+    setPrefilledVendor(cleanVendor);
+    setSupplierName(cleanVendor);
+    setLines([{ rawItemId: "", qty: "", unitCost: "" }]);
+    setRecordError(null);
+    setRecordModalOpen(true);
   };
 
   // 3. Mutation: Record new purchase
@@ -192,6 +253,7 @@ export default function PurchasesPage() {
       setRecordModalOpen(false);
       setLines([{ rawItemId: "", qty: "", unitCost: "" }]);
       setSupplierName("");
+      setPrefilledVendor(null);
       setRecordError(null);
     },
     onError: (err: any) => {
@@ -436,7 +498,7 @@ export default function PurchasesPage() {
         description="Verify raw supply acquisitions, cost sheets, and distributor accounts."
         actions={
           <button
-            onClick={() => setRecordModalOpen(true)}
+            onClick={handleOpenRecordPurchase}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover active:scale-[0.99] transition-all"
           >
             <Plus className="h-4 w-4" />
@@ -635,28 +697,38 @@ export default function PurchasesPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-center whitespace-nowrap">
-                            {/* HIDE / SHOW BUTTON TO TOGGLE PRODUCT DETAILS */}
-                            <button
-                              onClick={() => toggleGroupExpanded(batch.key)}
-                              className={cn(
-                                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control text-xs font-semibold transition-all border shadow-xs",
-                                isExpanded
-                                  ? "bg-primary text-white border-primary hover:bg-primary-hover"
-                                  : "bg-surface-sunken hover:bg-border text-ink border-border"
-                              )}
-                            >
-                              {isExpanded ? (
-                                <>
-                                  <ChevronUp className="h-3.5 w-3.5" />
-                                  <span>Hide Details</span>
-                                </>
-                              ) : (
-                                <>
-                                  <ChevronDown className="h-3.5 w-3.5" />
-                                  <span>Show Details ({batch.items.length})</span>
-                                </>
-                              )}
-                            </button>
+                            {/* HIDE / SHOW DETAILS AND ADD ORDER BUTTONS */}
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => toggleGroupExpanded(batch.key)}
+                                className={cn(
+                                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control text-xs font-semibold transition-all border shadow-xs",
+                                  isExpanded
+                                    ? "bg-primary text-white border-primary hover:bg-primary-hover"
+                                    : "bg-surface-sunken hover:bg-border text-ink border-border"
+                                )}
+                              >
+                                {isExpanded ? (
+                                  <>
+                                    <ChevronUp className="h-3.5 w-3.5" />
+                                    <span>Hide Details</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                    <span>Show Details ({batch.items.length})</span>
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handleOpenAddOrderForVendor(batch.supplierName)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-control text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors"
+                                title={`Add new purchase order for ${batch.supplierName}`}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                <span>Add Order</span>
+                              </button>
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-center whitespace-nowrap">
                             <button
@@ -670,76 +742,113 @@ export default function PurchasesPage() {
                           </td>
                         </tr>
 
-                        {/* COLLAPSIBLE DETAILS SUB-TABLE */}
+                        {/* COLLAPSIBLE DETAILS SUB-TABLE (SEGREGATED BY ORDER TIME SESSIONS) */}
                         {isExpanded && (
                           <tr>
                             <td colSpan={7} className="p-0 bg-surface-sunken/30 border-b border-border/70">
-                              <div className="p-4 space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <h5 className="text-xs font-bold text-ink-muted uppercase tracking-wide">
-                                    Products Ordered from {batch.supplierName} ({new Date(batch.purchasedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                                  </h5>
-                                  <span className="text-[11px] text-ink-muted font-medium">
-                                    Click pencil to Edit or trash icon to Delete an individual product log.
-                                  </span>
+                              <div className="p-4 space-y-4">
+                                <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                                  <div>
+                                    <h5 className="text-xs font-bold text-ink uppercase tracking-wide flex items-center gap-2">
+                                      <span>Orders from {batch.supplierName}</span>
+                                      <span className="text-[11px] font-normal text-ink-muted">
+                                        ({new Date(batch.purchasedAt).toLocaleDateString()})
+                                      </span>
+                                    </h5>
+                                    <p className="text-[11px] text-ink-muted">
+                                      {batch.subOrders.length > 1
+                                        ? `${batch.subOrders.length} distinct orders recorded on this date`
+                                        : "1 order recorded on this date"}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleOpenAddOrderForVendor(batch.supplierName)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-control shadow-xs transition-colors"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    <span>+ Add Another Order to {batch.supplierName}</span>
+                                  </button>
                                 </div>
 
-                                <div className="overflow-x-auto rounded-control border border-border bg-white dark:bg-card shadow-2xs">
-                                  <table className="w-full text-left text-xs">
-                                    <thead className="bg-surface-sunken border-b border-border text-ink-muted uppercase font-bold">
-                                      <tr>
-                                        <th className="px-3 py-2">Ingredient Name</th>
-                                        <th className="px-3 py-2 text-right">Quantity</th>
-                                        <th className="px-3 py-2 text-right">Unit Cost</th>
-                                        <th className="px-3 py-2 text-right">Total Line Cost</th>
-                                        <th className="px-3 py-2 text-center">Actions</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-border/60">
-                                      {batch.items.map((item) => (
-                                        <tr key={item.id} className="hover:bg-surface-sunken/40">
-                                          <td className="px-3 py-2.5 font-semibold text-ink">
-                                            {item.rawItem.name}
-                                          </td>
-                                          <td className="px-3 py-2.5 text-right font-mono text-ink">
-                                            {Number(item.qty).toFixed(3)} {item.rawItem.unit}
-                                          </td>
-                                          <td className="px-3 py-2.5 text-right font-mono text-ink">
-                                            Rs. {Number(item.unitCost).toFixed(2)}
-                                          </td>
-                                          <td className="px-3 py-2.5 text-right font-mono font-bold text-primary">
-                                            Rs. {Number(item.totalCost).toFixed(2)}
-                                          </td>
-                                          <td className="px-3 py-2.5 text-center">
-                                            <div className="flex items-center justify-center gap-2">
-                                              <button
-                                                onClick={() => setViewItem(item)}
-                                                className="p-1 hover:bg-primary/10 text-ink-muted hover:text-primary rounded-control transition-colors"
-                                                title="View Item"
-                                              >
-                                                <Eye className="h-3.5 w-3.5" />
-                                              </button>
-                                              <button
-                                                onClick={() => handleOpenEdit(item)}
-                                                className="p-1 hover:bg-warning/10 text-ink-muted hover:text-warning rounded-control transition-colors"
-                                                title="Edit Item"
-                                              >
-                                                <Pencil className="h-3.5 w-3.5" />
-                                              </button>
-                                              <button
-                                                onClick={() => setDeleteItem(item)}
-                                                className="p-1 hover:bg-danger/10 text-ink-muted hover:text-danger rounded-control transition-colors"
-                                                title="Delete Item"
-                                              >
-                                                <Trash2 className="h-3.5 w-3.5" />
-                                              </button>
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
+                                {batch.subOrders.map((subOrder, subIdx) => (
+                                  <div key={subOrder.orderTimeKey} className="space-y-2 bg-white dark:bg-card p-3 rounded-control border border-border shadow-2xs">
+                                    <div className="flex items-center justify-between text-xs border-b border-border/40 pb-2">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-bold text-primary">
+                                          Order #{subIdx + 1}
+                                        </span>
+                                        <span className="text-ink-muted">•</span>
+                                        <span className="font-medium text-ink">
+                                          {new Date(subOrder.purchasedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-surface-sunken border border-border text-ink-muted uppercase">
+                                          By {subOrder.recordedByRole.toLowerCase().replace(/_/g, " ")}
+                                        </span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-ink-muted text-[11px] mr-2">Subtotal:</span>
+                                        <span className="font-mono font-bold text-primary">Rs. {subOrder.totalCost.toFixed(2)}</span>
+                                      </div>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-left text-xs">
+                                        <thead className="bg-surface-sunken/60 text-ink-muted uppercase font-bold text-[10px]">
+                                          <tr>
+                                            <th className="px-3 py-1.5">Ingredient Name</th>
+                                            <th className="px-3 py-1.5 text-right">Quantity</th>
+                                            <th className="px-3 py-1.5 text-right">Unit Cost</th>
+                                            <th className="px-3 py-1.5 text-right">Total Line Cost</th>
+                                            <th className="px-3 py-1.5 text-center">Actions</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-border/40">
+                                          {subOrder.items.map((item) => (
+                                            <tr key={item.id} className="hover:bg-surface-sunken/30">
+                                              <td className="px-3 py-2 font-semibold text-ink">
+                                                {item.rawItem.name}
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono text-ink">
+                                                {Number(item.qty).toFixed(3)} {item.rawItem.unit}
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono text-ink">
+                                                Rs. {Number(item.unitCost).toFixed(2)}
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono font-bold text-primary">
+                                                Rs. {Number(item.totalCost).toFixed(2)}
+                                              </td>
+                                              <td className="px-3 py-2 text-center">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                  <button
+                                                    onClick={() => setViewItem(item)}
+                                                    className="p-1 hover:bg-primary/10 text-ink-muted hover:text-primary rounded-control transition-colors"
+                                                    title="View Item"
+                                                  >
+                                                    <Eye className="h-3.5 w-3.5" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => handleOpenEdit(item)}
+                                                    className="p-1 hover:bg-warning/10 text-ink-muted hover:text-warning rounded-control transition-colors"
+                                                    title="Edit Item"
+                                                  >
+                                                    <Pencil className="h-3.5 w-3.5" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => setDeleteItem(item)}
+                                                    className="p-1 hover:bg-danger/10 text-ink-muted hover:text-danger rounded-control transition-colors"
+                                                    title="Delete Item"
+                                                  >
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                  </button>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
                             </td>
                           </tr>
@@ -855,12 +964,27 @@ export default function PurchasesPage() {
         title={`Vendor Purchase Order — ${viewBatch?.supplierName || ""}`}
         className="max-w-xl"
         footer={
-          <button
-            onClick={() => setViewBatch(null)}
-            className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover transition-colors"
-          >
-            Close
-          </button>
+          <div className="flex items-center justify-between w-full">
+            <button
+              onClick={() => {
+                if (viewBatch) {
+                  const vName = viewBatch.supplierName;
+                  setViewBatch(null);
+                  handleOpenAddOrderForVendor(vName);
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-control shadow-sm transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Add Order for {viewBatch?.supplierName}</span>
+            </button>
+            <button
+              onClick={() => setViewBatch(null)}
+              className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover transition-colors"
+            >
+              Close
+            </button>
+          </div>
         }
       >
         {viewBatch && (
@@ -1068,9 +1192,10 @@ export default function PurchasesPage() {
           setRecordModalOpen(false);
           setLines([{ rawItemId: "", qty: "", unitCost: "" }]);
           setSupplierName("");
+          setPrefilledVendor(null);
           setRecordError(null);
         }}
-        title="Record Raw Purchase"
+        title={prefilledVendor ? `Add Order for Vendor — ${prefilledVendor}` : "Record Raw Purchase"}
         className="max-w-3xl"
         footer={
           <>
@@ -1079,6 +1204,7 @@ export default function PurchasesPage() {
                 setRecordModalOpen(false);
                 setLines([{ rawItemId: "", qty: "", unitCost: "" }]);
                 setSupplierName("");
+                setPrefilledVendor(null);
                 setRecordError(null);
               }}
               className="px-4 py-2 bg-transparent hover:bg-border text-ink-muted text-xs font-semibold rounded-control transition-colors"
@@ -1092,12 +1218,28 @@ export default function PurchasesPage() {
               className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-control shadow-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
             >
               {recordMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              <span>Record Log</span>
+              <span>{prefilledVendor ? "Record Vendor Order" : "Record Log"}</span>
             </button>
           </>
         }
       >
         <form id="purchase-form" onSubmit={handleRecordSubmit} className="space-y-4">
+          {prefilledVendor && (
+            <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 p-2.5 rounded-control text-xs font-semibold">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>Adding new purchase order under vendor: <strong>{prefilledVendor}</strong></span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrefilledVendor(null)}
+                className="text-[11px] underline font-normal text-emerald-800 dark:text-emerald-200 hover:text-emerald-900"
+              >
+                Change Vendor
+              </button>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-bold text-ink-muted uppercase mb-1">
               Supplier Vendor Name
