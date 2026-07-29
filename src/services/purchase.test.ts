@@ -85,4 +85,27 @@ describe("Purchase Service Integration Tests (Stage B-6)", () => {
       listPurchases({}, workerId)
     ).rejects.toThrow(ForbiddenError);
   });
+
+  it("should auto-update costPrice if unitCost is higher, but not if unitCost is lower", async () => {
+    // Reset initial costPrice to 100
+    await superuserPrisma.rawItem.update({
+      where: { id: rawPorkId },
+      data: { costPrice: 100 }
+    });
+
+    // 1. Record purchase with unitCost 150 (higher than 100) -> costPrice should update to 150
+    await recordPurchase(rawPorkId, 2, 150, "Supplier A", adminId);
+    let itemAfter = await superuserPrisma.rawItem.findUnique({ where: { id: rawPorkId } });
+    expect(Number(itemAfter!.costPrice)).toBe(150);
+
+    // 2. Record purchase with unitCost 80 (lower than 150) -> costPrice should remain 150
+    await recordPurchase(rawPorkId, 2, 80, "Supplier B", adminId);
+    itemAfter = await superuserPrisma.rawItem.findUnique({ where: { id: rawPorkId } });
+    expect(Number(itemAfter!.costPrice)).toBe(150);
+
+    // 3. Verify listPurchases returns costPrice on rawItem
+    const purchases = (await listPurchases({ rawItemId: rawPorkId }, adminId)) as any[];
+    expect(purchases.length).toBeGreaterThanOrEqual(2);
+    expect(purchases[0].rawItem).toHaveProperty("costPrice");
+  });
 });

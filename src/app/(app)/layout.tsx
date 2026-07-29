@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
@@ -21,7 +21,11 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  BookOpen
+  BookOpen,
+  Monitor,
+  Smartphone,
+  Menu,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -90,6 +94,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [desktopMode, setDesktopMode] = useState<boolean>(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+
+  // Load desktopMode from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedMode = localStorage.getItem("rms_desktop_mode");
+      if (savedMode === "true") {
+        setDesktopMode(true);
+      }
+    } catch (_) {}
+  }, []);
+
+  const toggleDesktopMode = () => {
+    setDesktopMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("rms_desktop_mode", String(next));
+      } catch (_) {}
+      return next;
+    });
+  };
 
   // Active hover/touch route prefetching for sub-10ms navigation response
   const handlePrefetch = useCallback((href: string) => {
@@ -175,11 +201,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const userName = user?.user_metadata?.name || user?.email?.split("@")[0] || "Staff";
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface-sunken">
-      {/* SIDEBAR NAVIGATION - Hidden on mobile (<640px) */}
+    <div
+      className={cn(
+        "flex h-screen w-screen bg-surface-sunken overflow-hidden",
+        desktopMode && "min-w-[1024px] overflow-x-auto"
+      )}
+    >
+      {/* SIDEBAR NAVIGATION - Hidden on mobile (<640px) UNLESS desktopMode is ON */}
       <aside
         className={cn(
-          "hidden sm:flex flex-col bg-sidebar border-r border-border h-full transition-all duration-300 relative select-none",
+          "flex-col bg-sidebar border-r border-border h-full transition-all duration-300 relative select-none shrink-0",
+          desktopMode ? "flex" : "hidden sm:flex",
           sidebarExpanded ? "w-64" : "w-20"
         )}
       >
@@ -294,14 +326,38 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         {/* TOPBAR */}
-        <header className="h-16 border-b border-border bg-white flex items-center justify-between px-6 shrink-0 z-30">
-          <div className="flex items-center gap-4">
-            <h2 className="text-lg font-bold text-ink select-none">{pageTitle}</h2>
+        <header className="h-16 border-b border-border bg-white flex items-center justify-between px-4 sm:px-6 shrink-0 z-30">
+          <div className="flex items-center gap-3">
+            <h2 className="text-base sm:text-lg font-bold text-ink select-none">{pageTitle}</h2>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
+            {/* Desktop Site Mode Toggle Button */}
+            <button
+              onClick={toggleDesktopMode}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-control text-xs font-semibold border transition-all select-none",
+                desktopMode
+                  ? "bg-primary text-white border-primary shadow-xs"
+                  : "bg-surface-sunken text-ink-muted border-border hover:text-ink hover:border-border/80"
+              )}
+              title={desktopMode ? "Switch to Mobile View" : "Switch to Desktop Site View"}
+            >
+              {desktopMode ? (
+                <>
+                  <Smartphone className="h-3.5 w-3.5" />
+                  <span className="hidden xs:inline">Mobile View</span>
+                </>
+              ) : (
+                <>
+                  <Monitor className="h-3.5 w-3.5" />
+                  <span>Desktop Site</span>
+                </>
+              )}
+            </button>
+
             {/* Search Input (Placeholder design) */}
             <div className="relative hidden md:block w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-muted" />
@@ -388,10 +444,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
             {/* User Profile Info & Avatar */}
             {user && (
-              <div className="flex items-center gap-3 border-l border-border pl-4">
+              <div className="flex items-center gap-2 sm:gap-3 border-l border-border pl-2 sm:pl-4">
                 <span
                   className={cn(
-                    "inline-block text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border tracking-wide select-none",
+                    "hidden sm:inline-block text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border tracking-wide select-none",
                     getRoleBadgeClasses(role)
                   )}
                 >
@@ -400,7 +456,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <UserAvatar
                   name={currentUserProfile?.name || userName}
                   imageUrl={currentUserProfile?.imageUrl || user.user_metadata?.imageUrl}
-                  className="h-9 w-9 transition-transform hover:scale-105 duration-200 cursor-pointer"
+                  className="h-8 w-8 sm:h-9 sm:w-9 transition-transform hover:scale-105 duration-200 cursor-pointer"
                 />
               </div>
             )}
@@ -408,14 +464,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* CONTAINER PAGE VIEWER */}
-        <main className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin pb-24 sm:pb-6 bg-background">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin pb-24 sm:pb-6 bg-background">
           {children}
         </main>
       </div>
 
-      {/* MOBILE BOTTOM NAVIGATION BAR - Visible only under 640px */}
-      <nav className="sm:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-border flex items-center justify-around px-2 z-40 shadow-lg">
-        {allowedItems.slice(0, 5).map((item) => {
+      {/* MOBILE BOTTOM NAVIGATION BAR - Visible under 640px UNLESS desktopMode is ON */}
+      <nav
+        className={cn(
+          "fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-border flex items-center justify-around px-2 z-40 shadow-lg",
+          desktopMode ? "hidden" : "sm:hidden"
+        )}
+      >
+        {allowedItems.slice(0, 4).map((item) => {
           const isActive =
             item.href === "/"
               ? pathname === "/"
@@ -434,11 +495,132 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               )}
             >
               <Icon className="h-5 w-5" />
-              <span className="truncate max-w-[70px]">{item.label}</span>
+              <span className="truncate max-w-[65px]">{item.label}</span>
             </Link>
           );
         })}
+
+        {/* 5th Tab: "More" Menu Drawer Trigger */}
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          className={cn(
+            "flex flex-col items-center justify-center gap-1 flex-1 py-1 text-[10px] font-semibold transition-colors",
+            mobileMenuOpen ? "text-primary font-bold" : "text-ink-muted hover:text-primary"
+          )}
+        >
+          <Menu className="h-5 w-5" />
+          <span>More ({allowedItems.length})</span>
+        </button>
       </nav>
+
+      {/* MOBILE SLIDE-OVER NAVIGATION DRAWER */}
+      {mobileMenuOpen && !desktopMode && (
+        <div className="fixed inset-0 z-50 flex sm:hidden">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-fade-in"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+
+          {/* Drawer Panel */}
+          <div className="relative ml-auto flex h-full w-4/5 max-w-xs flex-col bg-white p-5 shadow-2xl z-50 animate-slide-in-right">
+            <div className="flex items-center justify-between border-b border-border pb-3 mb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-control bg-primary flex items-center justify-center text-white font-bold text-xs shadow-sm">
+                  JD
+                </div>
+                <span className="font-extrabold text-ink text-sm uppercase tracking-tight">
+                  Sekuwa House
+                </span>
+              </div>
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-1.5 rounded-control text-ink-muted hover:text-ink hover:bg-surface-sunken transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Desktop Site Mode Switcher inside Drawer */}
+            <div className="mb-4 p-3 rounded-card bg-surface-sunken border border-border/80 flex items-center justify-between">
+              <div className="text-xs">
+                <p className="font-bold text-ink">Desktop Site Mode</p>
+                <p className="text-[10px] text-ink-muted">View full desktop site on phone</p>
+              </div>
+              <button
+                onClick={() => {
+                  toggleDesktopMode();
+                  setMobileMenuOpen(false);
+                }}
+                className="px-3 py-1.5 rounded-control text-xs font-bold bg-primary text-white shadow-xs hover:bg-primary/90 transition-colors"
+              >
+                Enable
+              </button>
+            </div>
+
+            {/* All Allowed Navigation Links */}
+            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
+              <p className="text-[10px] font-bold text-ink-muted uppercase tracking-wider mb-2 px-1">
+                All Navigation Pages ({allowedItems.length})
+              </p>
+              {allowedItems.map((item) => {
+                const isActive =
+                  item.href === "/"
+                    ? pathname === "/"
+                    : pathname.startsWith(item.href);
+                const Icon = item.icon;
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-control text-xs font-semibold transition-all",
+                      isActive
+                        ? "bg-primary text-white shadow-xs font-bold"
+                        : "text-ink hover:bg-surface-sunken hover:text-primary"
+                    )}
+                  >
+                    <Icon className="h-4.5 w-4.5 shrink-0" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* Drawer Footer */}
+            <div className="border-t border-border pt-3 mt-3 space-y-3">
+              {user && (
+                <div className="flex items-center gap-3 px-1">
+                  <UserAvatar
+                    name={currentUserProfile?.name || userName}
+                    imageUrl={currentUserProfile?.imageUrl || user.user_metadata?.imageUrl}
+                    className="h-8.5 w-8.5"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-ink truncate">{currentUserProfile?.name || userName}</p>
+                    <span className={cn("inline-block text-[8px] uppercase font-extrabold px-1.5 py-0.5 rounded border", getRoleBadgeClasses(role))}>
+                      {getRoleLabel(role)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  signOut();
+                }}
+                className="flex w-full items-center justify-center gap-2 px-3 py-2 rounded-control text-xs font-bold text-danger bg-danger/10 hover:bg-danger/20 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

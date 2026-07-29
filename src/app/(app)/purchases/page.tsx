@@ -43,6 +43,7 @@ interface PurchaseRecord {
     id?: string;
     name: string;
     unit: string;
+    costPrice?: number | null;
   };
   recordedBy: {
     role: string;
@@ -433,7 +434,11 @@ export default function PurchasesPage() {
       key: "unitCost",
       label: "Unit Cost",
       align: "right" as const,
-      render: (val: number) => `Rs. ${Number(val).toFixed(2)}`
+      render: (val: number, row: PurchaseRecord) => {
+        const inventoryCost = Number(row.rawItem?.costPrice ?? 0);
+        const effectiveCost = Math.max(Number(val), inventoryCost);
+        return `Rs. ${effectiveCost.toFixed(2)}`;
+      }
     },
     {
       key: "totalCost",
@@ -812,7 +817,7 @@ export default function PurchasesPage() {
                                                 {Number(item.qty).toFixed(3)} {item.rawItem.unit}
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono text-ink">
-                                                Rs. {Number(item.unitCost).toFixed(2)}
+                                                Rs. {Math.max(Number(item.unitCost), Number(item.rawItem?.costPrice ?? 0)).toFixed(2)}
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono font-bold text-primary">
                                                 Rs. {Number(item.totalCost).toFixed(2)}
@@ -928,7 +933,7 @@ export default function PurchasesPage() {
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-ink-muted uppercase">Unit Cost</span>
                 <span className="text-sm font-semibold font-mono text-ink">
-                  Rs. {Number(viewItem.unitCost).toFixed(2)}
+                  Rs. {Math.max(Number(viewItem.unitCost), Number(viewItem.rawItem?.costPrice ?? 0)).toFixed(2)}
                 </span>
               </div>
               <div className="border-t border-border/80 pt-2 flex justify-between items-center">
@@ -1017,7 +1022,7 @@ export default function PurchasesPage() {
                       <tr key={item.id}>
                         <td className="px-3 py-2 font-medium">{item.rawItem.name}</td>
                         <td className="px-3 py-2 text-right font-mono">{Number(item.qty).toFixed(3)} {item.rawItem.unit}</td>
-                        <td className="px-3 py-2 text-right font-mono">Rs. {Number(item.unitCost).toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right font-mono">Rs. {Math.max(Number(item.unitCost), Number(item.rawItem?.costPrice ?? 0)).toFixed(2)}</td>
                         <td className="px-3 py-2 text-right font-mono font-bold text-primary">Rs. {Number(item.totalCost).toFixed(2)}</td>
                       </tr>
                     ))}

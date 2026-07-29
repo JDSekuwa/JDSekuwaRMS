@@ -50,21 +50,25 @@ export async function recordPurchase(
       }
     });
 
-    // 2. Fetch raw item to get current stock and verify existence
+    // 2. Fetch raw item to get current stock and cost price, verify existence
     const rawItem = await tx.rawItem.findUnique({
       where: { id: rawItemId },
-      select: { currentStock: true }
+      select: { currentStock: true, costPrice: true }
     });
     if (!rawItem) {
       throw new Error("Raw ingredient not found");
     }
 
-    // 3. Increment the stock level
+    // 3. Increment the stock level and auto-update costPrice if purchase price is higher
+    const updateData: any = {
+      currentStock: Number(rawItem.currentStock) + qty
+    };
+    if (unitCost > Number(rawItem.costPrice)) {
+      updateData.costPrice = unitCost;
+    }
     await tx.rawItem.update({
       where: { id: rawItemId },
-      data: {
-        currentStock: Number(rawItem.currentStock) + qty
-      },
+      data: updateData,
       select: {
         id: true,
         currentStock: true
@@ -138,21 +142,25 @@ export async function recordPurchases(
         }
       });
 
-      // 2. Fetch raw item to get current stock and verify existence
+      // 2. Fetch raw item to get current stock and cost price, verify existence
       const rawItem = await tx.rawItem.findUnique({
         where: { id: rawItemId },
-        select: { currentStock: true }
+        select: { currentStock: true, costPrice: true }
       });
       if (!rawItem) {
         throw new Error("Raw ingredient not found");
       }
 
-      // 3. Increment the stock level
+      // 3. Increment the stock level and auto-update costPrice if purchase price is higher
+      const updateData: any = {
+        currentStock: Number(rawItem.currentStock) + qty
+      };
+      if (unitCost > Number(rawItem.costPrice)) {
+        updateData.costPrice = unitCost;
+      }
       await tx.rawItem.update({
         where: { id: rawItemId },
-        data: {
-          currentStock: Number(rawItem.currentStock) + qty
-        },
+        data: updateData,
         select: {
           id: true,
           currentStock: true
@@ -224,7 +232,8 @@ export async function listPurchases(
     rawItem: {
       select: {
         name: true,
-        unit: true
+        unit: true,
+        costPrice: true
       }
     },
     recordedBy: {
@@ -398,7 +407,8 @@ export async function updatePurchase(
         rawItem: {
           select: {
             name: true,
-            unit: true
+            unit: true,
+            costPrice: true
           }
         },
         recordedBy: {
@@ -408,6 +418,18 @@ export async function updatePurchase(
         }
       }
     });
+
+    // 3b. Auto-update costPrice if the new unitCost is higher than the raw item's current costPrice
+    const targetRawItem = await tx.rawItem.findUnique({
+      where: { id: newRawItemId },
+      select: { costPrice: true }
+    });
+    if (targetRawItem && newUnitCost > Number(targetRawItem.costPrice)) {
+      await tx.rawItem.update({
+        where: { id: newRawItemId },
+        data: { costPrice: newUnitCost }
+      });
+    }
 
     // 4. Log audit action
     await logAction(
