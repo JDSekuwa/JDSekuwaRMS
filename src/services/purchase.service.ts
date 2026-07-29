@@ -244,8 +244,8 @@ export async function listPurchases(
   };
 
   if (filters.skip !== undefined && filters.take !== undefined) {
-    const total = await prisma.purchase.count({ where: whereClause });
-    const purchases = await prisma.purchase.findMany({
+    const total = await superuserPrisma.purchase.count({ where: whereClause });
+    const purchases = await superuserPrisma.purchase.findMany({
       where: whereClause,
       include: includeClause,
       orderBy: {
@@ -257,7 +257,7 @@ export async function listPurchases(
     return { purchases, total };
   }
 
-  return await prisma.purchase.findMany({
+  return await superuserPrisma.purchase.findMany({
     where: whereClause,
     include: includeClause,
     orderBy: {
