@@ -8,6 +8,7 @@ import { useQzTray } from "@/hooks/use-qz-tray";
 import { getMenuItemImage } from "@/lib/menu-images";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { TableOrderHistory } from "@/components/tables/table-order-history";
 import { Modal, Sheet } from "@/components/ui/modal-sheet";
 import { CustomerCreditSyncWidget } from "@/components/ui/customer-credit-sync";
 import { cn } from "@/lib/utils";
@@ -130,6 +131,9 @@ export default function TablesPage() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
+
+  // Main Tab Navigation state
+  const [activeMainTab, setActiveMainTab] = useState<"tables" | "history">("tables");
 
   // Layout selection states
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -732,7 +736,41 @@ export default function TablesPage() {
         }
       />
 
-      {/* FLOOR OCCUPANCY SUMMARY — STAT TILES */}
+      {/* NAVIGATION TABS: TABLES | HISTORY */}
+      <div className="flex gap-2 border-b border-border pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("tables")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-control text-xs font-bold transition-all select-none active:scale-[0.98]",
+            activeMainTab === "tables"
+              ? "bg-primary text-white shadow-sm"
+              : "text-ink-muted hover:bg-surface-sunken hover:text-ink"
+          )}
+        >
+          <Utensils className="h-3.5 w-3.5" />
+          <span>Tables</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("history")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-control text-xs font-bold transition-all select-none active:scale-[0.98]",
+            activeMainTab === "history"
+              ? "bg-primary text-white shadow-sm"
+              : "text-ink-muted hover:bg-surface-sunken hover:text-ink"
+          )}
+        >
+          <Clock className="h-3.5 w-3.5" />
+          <span>History</span>
+        </button>
+      </div>
+
+      {activeMainTab === "history" ? (
+        <TableOrderHistory tables={tables} />
+      ) : (
+        <>
+          {/* FLOOR OCCUPANCY SUMMARY — STAT TILES */}
       {tables.length > 0 && (
         <div className="animate-fade-in-up space-y-3">
           {/* Stat Tiles Row */}
@@ -970,6 +1008,8 @@ export default function TablesPage() {
             );
           })}
         </div>
+      )}
+        </>
       )}
 
       {/* MODAL FOR FLOOR MANAGEMENT */}

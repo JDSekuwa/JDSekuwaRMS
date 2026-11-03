@@ -8,10 +8,12 @@ import { z } from "zod";
 const closeSchema = z.object({
   paymentType: z.nativeEnum(PaymentType),
   discount: z.number().nonnegative().default(0),
-  customerInfo: z.object({
-    customerName: z.string().min(1, "Name is required"),
-    phone: z.string().min(1, "Phone is required"),
-  }).optional(),
+  customerInfo: z
+    .object({
+      customerName: z.string().optional().nullable(),
+      phone: z.string().optional().nullable(),
+    })
+    .optional(),
 });
 
 export async function POST(

@@ -263,7 +263,8 @@ export async function voidOrderItem(
 export async function openTableOrder(
   tableId: string,
   tag: string | null = null,
-  userId: string
+  userId: string,
+  customerInfo?: { customerName?: string | null; customerPhone?: string | null }
 ): Promise<any> {
   const profile = await getCachedProfile(userId);
   if (!profile) {
@@ -300,16 +301,29 @@ export async function openTableOrder(
       throw new TableConflictError("Table status was updated by another session");
     }
 
+    // Save customerName and customerPhone on the TableOrder, using tag as the name if none is given
+    const resolvedCustomerName = customerInfo?.customerName?.trim() || tag?.trim() || null;
+    const resolvedCustomerPhone = customerInfo?.customerPhone?.trim() || null;
+
     const order = await tx.tableOrder.create({
       data: {
         tableId,
         status: TableOrderStatus.OPEN,
+        customerName: resolvedCustomerName,
+        customerPhone: resolvedCustomerPhone,
         openedById: userId,
         version: 1
       }
     });
 
-    await logAction(userId, "OPEN_TABLE_ORDER", "TableOrder", order.id, { tableId }, tx);
+    await logAction(
+      userId,
+      "OPEN_TABLE_ORDER",
+      "TableOrder",
+      order.id,
+      { tableId, customerName: resolvedCustomerName },
+      tx
+    );
 
     // Invalidate caches
     serverCache.invalidate("inventory");
@@ -360,6 +374,13 @@ export async function addItemsToTableOrder(
       throw new TableConflictError("Table order version changed");
     }
 
+    // Find the highest existing round for the order, set new items to that plus 1
+    const maxRoundResult = await tx.orderItem.aggregate({
+      where: { tableOrderId },
+      _max: { round: true },
+    });
+    const nextRound = (maxRoundResult._max.round ?? 0) + 1;
+
     const createdItems = [];
     for (const item of items) {
       const menu = await tx.menuItem.findUnique({
@@ -376,6 +397,7 @@ export async function addItemsToTableOrder(
           qty: item.qty,
           unitPrice: menu.price,
           rawQtyOverride: item.rawQtyOverride !== undefined ? item.rawQtyOverride : null,
+          round: nextRound,
         }
       });
       createdItems.push(created);
@@ -386,7 +408,7 @@ export async function addItemsToTableOrder(
       "ADD_ITEMS_TO_TABLE_ORDER",
       "TableOrder",
       tableOrderId,
-      { count: items.length },
+      { count: items.length, round: nextRound },
       tx
     );
 
@@ -650,16 +672,50 @@ export async function mergeTableOrders(
       throw new TableConflictError("Target order state changed");
     }
 
-    // Move all items from source to target
-    await tx.orderItem.updateMany({
+    // Renumber moved items after the target's highest round so rounds don't collide
+    const targetMaxResult = await tx.orderItem.aggregate({
+      where: {
+        tableOrderId: targetTableOrderId,
+        isVoid: false,
+      },
+      _max: {
+        round: true,
+      },
+    });
+    const targetHighestRound = targetMaxResult._max.round ?? 0;
+
+    const sourceItems = await tx.orderItem.findMany({
       where: {
         tableOrderId: sourceTableOrderId,
-        isVoid: false
+        isVoid: false,
       },
-      data: {
-        tableOrderId: targetTableOrderId
-      }
+      orderBy: [
+        { round: "asc" },
+        { createdAt: "asc" },
+      ],
     });
+
+    if (sourceItems.length > 0) {
+      const distinctSourceRounds = Array.from(
+        new Set(sourceItems.map((item) => item.round ?? 1))
+      ).sort((a, b) => a - b);
+
+      const roundMap = new Map<number, number>();
+      distinctSourceRounds.forEach((r, idx) => {
+        roundMap.set(r, targetHighestRound + 1 + idx);
+      });
+
+      for (const item of sourceItems) {
+        const newRound = roundMap.get(item.round ?? 1) ?? (targetHighestRound + 1);
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: {
+            tableOrderId: targetTableOrderId,
+            round: newRound,
+          },
+        });
+      }
+    }
 
     await logAction(
       userId,
@@ -686,7 +742,7 @@ export async function closeTableOrder(
   cashierId: string,
   paymentType: PaymentType,
   discount: number = 0,
-  customerInfo?: { customerName: string; phone: string }
+  customerInfo?: { customerName?: string | null; phone?: string | null }
 ): Promise<any> {
   const cashier = await getCachedProfile(cashierId);
   if (!cashier) {
@@ -746,6 +802,10 @@ export async function closeTableOrder(
       });
     }
 
+    // Save the customer info passed at checkout onto the order, falling back to existing values
+    const finalCustomerName = customerInfo?.customerName?.trim() || order.customerName || null;
+    const finalCustomerPhone = customerInfo?.phone?.trim() || order.customerPhone || null;
+
     // 3. Optimistic lock on TableOrder status change
     const orderUpdated = await tx.tableOrder.updateMany({
       where: {
@@ -759,6 +819,8 @@ export async function closeTableOrder(
         subtotal,
         discount,
         total,
+        customerName: finalCustomerName,
+        customerPhone: finalCustomerPhone,
         version: { increment: 1 }
       }
     });
@@ -784,14 +846,14 @@ export async function closeTableOrder(
 
     // 5. Create credit record if CREDIT payment
     if (paymentType === PaymentType.CREDIT) {
-      if (!customerInfo || !customerInfo.customerName || !customerInfo.phone) {
+      if (!finalCustomerName || !finalCustomerPhone) {
         throw new Error("Customer name and phone number are required for credit payments");
       }
 
       await upsertCreditEntry(
         tx,
-        customerInfo.customerName,
-        customerInfo.phone,
+        finalCustomerName,
+        finalCustomerPhone,
         CreditSource.TABLE_SALE,
         order.id,
         total
@@ -803,7 +865,7 @@ export async function closeTableOrder(
       "CLOSE_TABLE_ORDER",
       "TableOrder",
       order.id,
-      { total, paymentType },
+      { total, paymentType, customerName: finalCustomerName, customerPhone: finalCustomerPhone },
       tx
     );
 
@@ -902,4 +964,3 @@ export async function vacateTableOrder(
     return { success: true };
   }, { maxWait: 5000, timeout: 15000 });
 }
-

@@ -6,6 +6,8 @@ import { z } from "zod";
 
 const openSchema = z.object({
   tag: z.string().nullable().optional(),
+  customerName: z.string().nullable().optional(),
+  customerPhone: z.string().nullable().optional(),
 });
 
 export async function POST(
@@ -26,8 +28,11 @@ export async function POST(
       );
     }
 
-    const { tag } = result.data;
-    const order = await openTableOrder(tableId, tag || null, profile.id);
+    const { tag, customerName, customerPhone } = result.data;
+    const order = await openTableOrder(tableId, tag || null, profile.id, {
+      customerName,
+      customerPhone,
+    });
 
     return NextResponse.json(order);
   } catch (error: any) {

@@ -1,5 +1,5 @@
-import { superuserPrisma } from "../lib/prisma";
-import { Role } from "../generated/prisma/client";
+import { superuserPrisma, prisma } from "../lib/prisma";
+import { Role, TableOrderStatus } from "../generated/prisma/client";
 import { logAction } from "./audit.service";
 import { ForbiddenError } from "../lib/errors";
 import { getCachedProfile } from "./auth.service";
@@ -88,4 +88,222 @@ export async function deleteTable(
     }
     throw error;
   }
+}
+
+export interface HistoryFilter {
+  tableId?: string;
+  startDate?: string | Date;
+  endDate?: string | Date;
+  page?: number;
+  limit?: number;
+}
+
+/**
+ * Returns paginated closed TableOrder visits, sorted newest first.
+ */
+export async function getTableOrderHistory(filter: HistoryFilter) {
+  const page = Math.max(1, filter.page || 1);
+  const limit = Math.min(100, Math.max(1, filter.limit || 20));
+  const skip = (page - 1) * limit;
+
+  const where: any = {
+    status: TableOrderStatus.CLOSED,
+  };
+
+  if (filter.tableId) {
+    where.tableId = filter.tableId;
+  }
+
+  if (filter.startDate || filter.endDate) {
+    where.closedAt = {};
+    if (filter.startDate) {
+      where.closedAt.gte = new Date(filter.startDate);
+    }
+    if (filter.endDate) {
+      const end = new Date(filter.endDate);
+      if (typeof filter.endDate === "string" && filter.endDate.length === 10) {
+        end.setHours(23, 59, 59, 999);
+      }
+      where.closedAt.lte = end;
+    }
+  }
+
+  const [totalCount, orders] = await prisma.$transaction([
+    prisma.tableOrder.count({ where }),
+    prisma.tableOrder.findMany({
+      where,
+      include: {
+        table: {
+          select: { id: true, name: true }
+        },
+        items: {
+          select: { id: true }
+        }
+      },
+      orderBy: { closedAt: "desc" },
+      skip,
+      take: limit,
+    })
+  ]);
+
+  const visits = orders.map((order) => ({
+    id: order.id,
+    table: {
+      id: order.table.id,
+      name: order.table.name,
+    },
+    customer: {
+      name: order.customerName,
+      phone: order.customerPhone,
+    },
+    times: {
+      openedAt: order.openedAt,
+      closedAt: order.closedAt,
+    },
+    paymentType: order.paymentType,
+    totals: {
+      subtotal: order.subtotal ? Number(order.subtotal) : 0,
+      discount: order.discount ? Number(order.discount) : 0,
+      total: order.total ? Number(order.total) : 0,
+    },
+    itemCount: order.items.length,
+  }));
+
+  return {
+    visits,
+    pagination: {
+      page,
+      limit,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+    }
+  };
+}
+
+/**
+ * Returns detail for a specific closed TableOrder visit, with items grouped by round.
+ * Falls back to minute-grouping if round is null.
+ */
+export async function getTableOrderHistoryDetail(orderId: string) {
+  const order = await prisma.tableOrder.findUnique({
+    where: { id: orderId },
+    include: {
+      table: {
+        select: { id: true, name: true }
+      },
+      openedBy: {
+        select: { id: true, role: true }
+      },
+      items: {
+        include: {
+          menuItem: {
+            select: { id: true, name: true, price: true }
+          }
+        },
+        orderBy: [
+          { round: "asc" },
+          { createdAt: "asc" }
+        ]
+      }
+    }
+  });
+
+  if (!order) {
+    return null;
+  }
+
+  type GroupedRound = {
+    key: string;
+    roundNumber: number | null;
+    earliestAt: number;
+    items: Array<{
+      id: string;
+      item: string;
+      menuItemId: string;
+      qty: number;
+      unitPrice: number;
+      lineTotal: number;
+      isVoid: boolean;
+      createdAt: Date;
+    }>;
+  };
+
+  const groupsMap = new Map<string, GroupedRound>();
+
+  for (const item of order.items) {
+    // If round is not null use it, otherwise fall back to calendar minute grouping
+    const key = item.round !== null
+      ? `round-${item.round}`
+      : `minute-${item.createdAt.toISOString().slice(0, 16)}`;
+
+    let group = groupsMap.get(key);
+    if (!group) {
+      group = {
+        key,
+        roundNumber: item.round,
+        earliestAt: item.createdAt.getTime(),
+        items: []
+      };
+      groupsMap.set(key, group);
+    } else {
+      if (item.createdAt.getTime() < group.earliestAt) {
+        group.earliestAt = item.createdAt.getTime();
+      }
+    }
+
+    const unitPrice = Number(item.unitPrice);
+    group.items.push({
+      id: item.id,
+      item: item.menuItem?.name || "Unknown item",
+      menuItemId: item.menuItemId,
+      qty: item.qty,
+      unitPrice,
+      lineTotal: unitPrice * item.qty,
+      isVoid: item.isVoid,
+      createdAt: item.createdAt,
+    });
+  }
+
+  // Sort groups chronologically
+  const sortedGroups = Array.from(groupsMap.values()).sort((a, b) => {
+    if (a.roundNumber !== null && b.roundNumber !== null) {
+      return a.roundNumber - b.roundNumber;
+    }
+    return a.earliestAt - b.earliestAt;
+  });
+
+  // Assign clean sequential round numbering
+  const rounds = sortedGroups.map((group, index) => {
+    const roundNum = group.roundNumber !== null ? group.roundNumber : (index + 1);
+    return {
+      round: roundNum,
+      roundLabel: `Round ${roundNum}`,
+      items: group.items,
+    };
+  });
+
+  return {
+    id: order.id,
+    status: order.status,
+    table: {
+      id: order.table.id,
+      name: order.table.name,
+    },
+    customer: {
+      name: order.customerName,
+      phone: order.customerPhone,
+    },
+    times: {
+      openedAt: order.openedAt,
+      closedAt: order.closedAt,
+    },
+    paymentType: order.paymentType,
+    totals: {
+      subtotal: order.subtotal ? Number(order.subtotal) : 0,
+      discount: order.discount ? Number(order.discount) : 0,
+      total: order.total ? Number(order.total) : 0,
+    },
+    openedBy: order.openedBy,
+    rounds,
+  };
 }
