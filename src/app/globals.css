@@ -2,6 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* Tailwind v4 scans every non-gitignored file for class names. ansible/inventory.ini
+   contains an Ansible INI group header `[all:vars]`, which gets emitted as the
+   (invalid) utility `.\[all\:vars\] { all: vars; }` and breaks the CSS parser. */
+@source not "../../ansible";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

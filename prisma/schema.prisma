@@ -78,6 +78,7 @@ model Profile {
   purchases        Purchase[]
   stockAdjustments StockAdjustment[]
   roomStays        RoomStay[]
+  expenses         Expense[]
 
   @@map("profiles")
 }
@@ -342,3 +343,35 @@ model AuditLog {
 
   @@map("audit_logs")
 }
+
+model ExpenseCategory {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @unique
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  expenses    Expense[]
+
+  @@map("expense_categories")
+}
+
+model Expense {
+  id           String          @id @default(uuid()) @db.Uuid
+  title        String
+  categoryId   String          @map("category_id") @db.Uuid
+  category     ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  amount       Decimal         @db.Decimal(10, 2)
+  date         DateTime        @default(now())
+  paymentType  PaymentType     @default(CASH) @map("payment_type")
+  vendor       String?
+  notes        String?
+  recordedById String          @map("recorded_by_id") @db.Uuid
+  recordedBy   Profile         @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  @@index([date])
+  @@index([categoryId])
+  @@map("expenses")
+}
+
