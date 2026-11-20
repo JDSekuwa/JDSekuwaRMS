@@ -1,17 +1,10 @@
 -- AlterEnum
-ALTER TYPE "CreditSource" ADD VALUE 'OPENING_BALANCE';
+ALTER TYPE "CreditSource" ADD VALUE IF NOT EXISTS 'OPENING_BALANCE';
 
 -- AlterEnum
--- This migration adds more than one value to an enum.
--- With PostgreSQL versions 11 and earlier, this is not possible
--- in a single migration. This can be worked around by creating
--- multiple migrations, each migration adding only one value to
--- the enum.
-
-
-ALTER TYPE "Unit" ADD VALUE 'ML';
-ALTER TYPE "Unit" ADD VALUE 'PACKET';
-ALTER TYPE "Unit" ADD VALUE 'PLATE';
+ALTER TYPE "Unit" ADD VALUE IF NOT EXISTS 'ML';
+ALTER TYPE "Unit" ADD VALUE IF NOT EXISTS 'PACKET';
+ALTER TYPE "Unit" ADD VALUE IF NOT EXISTS 'PLATE';
 
 -- CreateTable
 CREATE TABLE "expense_categories" (
