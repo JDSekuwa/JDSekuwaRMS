@@ -1,7 +1,6 @@
-import "dotenv/config";
 import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { prisma, superuserPrisma } from "../lib/prisma";
-import { getDailySalesSummary, getProfitSummary } from "./reports.service";
+import { getDailySalesSummary, getProfitSummary, getSalesReport } from "./reports.service";
 import { Role } from "../generated/prisma/client";
 import { ForbiddenError } from "../lib/errors";
 
@@ -107,6 +106,45 @@ describe("Reports Service Integration Tests (Stage B-7)", () => {
     // 2. Restaurant Admin fails
     await expect(
       getProfitSummary({ start: todayStart, end: todayEnd }, adminId)
+    ).rejects.toThrow(ForbiddenError);
+  });
+
+  it("should calculate getSalesReport correctly for single day and multi-day date ranges without inventory costs", async () => {
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    // 1. Single day range
+    const singleDayReport = await getSalesReport({ start: today, end: today }, adminId);
+    expect(singleDayReport).toBeDefined();
+    expect(singleDayReport.summary.startDate).toBe(todayStr);
+    expect(singleDayReport.summary.endDate).toBe(todayStr);
+    expect(singleDayReport.summary.quickSales).toBeGreaterThanOrEqual(500.00);
+    expect(singleDayReport.summary.totalSales).toBe(
+      singleDayReport.summary.quickSales +
+      singleDayReport.summary.tableSales +
+      singleDayReport.summary.roomSales
+    );
+    expect(singleDayReport.dailyBreakdown.length).toBe(1);
+    expect(singleDayReport.dailyBreakdown[0].date).toBe(todayStr);
+    expect(singleDayReport.dailyBreakdown[0].quickSales).toBeGreaterThanOrEqual(500.00);
+
+    // 2. Multi-day range (e.g. 7 days)
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6);
+    const multiDayReport = await getSalesReport({ start: sevenDaysAgo, end: today }, adminId);
+    expect(multiDayReport).toBeDefined();
+    expect(multiDayReport.dailyBreakdown.length).toBe(7);
+    expect(multiDayReport.summary.totalSales).toBeGreaterThanOrEqual(500.00);
+
+    // Verify daily sums match summary
+    const sumDailyTotal = multiDayReport.dailyBreakdown.reduce((sum, d) => sum + d.totalSales, 0);
+    expect(Math.abs(sumDailyTotal - multiDayReport.summary.totalSales)).toBeLessThan(0.01);
+  });
+
+  it("should reject WORKER callers from accessing getSalesReport", async () => {
+    const today = new Date();
+    await expect(
+      getSalesReport({ start: today, end: today }, workerId)
     ).rejects.toThrow(ForbiddenError);
   });
 });

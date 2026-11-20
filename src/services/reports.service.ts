@@ -9,6 +9,36 @@ export interface DateRange {
   end: Date;
 }
 
+export interface DailySalesMetric {
+  date: string;
+  quickSales: number;
+  tableSales: number;
+  roomSales: number;
+  totalSales: number;
+  purchaseExpenses: number;
+  operationalExpenses: number;
+  totalExpenses: number;
+  netProfit: number;
+}
+
+export interface SalesReportSummary {
+  quickSales: number;
+  tableSales: number;
+  roomSales: number;
+  totalSales: number;
+  purchaseExpenses: number;
+  operationalExpenses: number;
+  totalExpenses: number;
+  netProfit: number;
+  startDate: string;
+  endDate: string;
+}
+
+export interface SalesReportResponse {
+  summary: SalesReportSummary;
+  dailyBreakdown: DailySalesMetric[];
+}
+
 // Helper: Assert Caller has Admin/SuperAdmin Role
 async function assertAdminOrSuper(userId: string) {
   const profile = await getCachedProfile(userId);
@@ -82,6 +112,161 @@ export async function getDailySalesSummary(userId: string) {
     tableSales: tableTotal,
     roomSales: roomTotal,
     totalSales: quickTotal + tableTotal + roomTotal
+  };
+}
+
+/**
+ * Helper to format local date as YYYY-MM-DD
+ */
+function toLocalDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Returns a comprehensive sales and expense report across an arbitrary date range (Today, 7 days, 15 days, 30 days, custom).
+ * Combines gross sales revenue and operational expenses (purchases) with net profit metrics.
+ * Executes in O(1) constant-time batched queries (no N+1 queries).
+ */
+export async function getSalesReport(range: DateRange, userId: string): Promise<SalesReportResponse> {
+  await assertAdminOrSuper(userId);
+
+  const start = new Date(range.start);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(range.end);
+  end.setHours(23, 59, 59, 999);
+
+  // 1. O(1) Batched Queries with lean field projections (no N+1 queries)
+  const [quickSales, tableOrders, roomStays, purchases] = await Promise.all([
+    superuserPrisma.quickSale.findMany({
+      where: { createdAt: { gte: start, lte: end } },
+      select: { createdAt: true, total: true }
+    }),
+    superuserPrisma.tableOrder.findMany({
+      where: {
+        status: TableOrderStatus.CLOSED,
+        updatedAt: { gte: start, lte: end }
+      },
+      select: { updatedAt: true, total: true }
+    }),
+    superuserPrisma.roomStay.findMany({
+      where: {
+        status: RoomStayStatus.CHECKED_OUT,
+        actualCheckOut: { gte: start, lte: end }
+      },
+      include: {
+        room: true,
+        orderItems: {
+          where: { isVoid: false }
+        }
+      }
+    }),
+    superuserPrisma.purchase.findMany({
+      where: { purchasedAt: { gte: start, lte: end } },
+      select: { purchasedAt: true, totalCost: true }
+    })
+  ]);
+
+  // 2. Pre-populate daily buckets for every date in range
+  const dailyMap = new Map<string, DailySalesMetric>();
+  const iter = new Date(start);
+  while (iter <= end) {
+    const key = toLocalDateKey(iter);
+    dailyMap.set(key, {
+      date: key,
+      quickSales: 0,
+      tableSales: 0,
+      roomSales: 0,
+      totalSales: 0,
+      purchaseExpenses: 0,
+      operationalExpenses: 0,
+      totalExpenses: 0,
+      netProfit: 0
+    });
+    iter.setDate(iter.getDate() + 1);
+  }
+
+  // 3. Bucket Quick Sales
+  for (const s of quickSales) {
+    const key = toLocalDateKey(s.createdAt);
+    const bucket = dailyMap.get(key);
+    if (bucket) {
+      bucket.quickSales += Number(s.total || 0);
+    }
+  }
+
+  // 4. Bucket Closed Table Dine-in Orders
+  for (const o of tableOrders) {
+    if (!o.updatedAt) continue;
+    const key = toLocalDateKey(o.updatedAt);
+    const bucket = dailyMap.get(key);
+    if (bucket) {
+      bucket.tableSales += Number(o.total || 0);
+    }
+  }
+
+  // 5. Bucket Checked-out Room Stays (Nightly Rate + Food Charges)
+  for (const rs of roomStays) {
+    if (!rs.actualCheckOut) continue;
+    const key = toLocalDateKey(rs.actualCheckOut);
+    const bucket = dailyMap.get(key);
+    if (bucket) {
+      const roomCharge = rs.numNights * Number(rs.room.nightlyRate || 0);
+      const foodCharges = rs.orderItems.reduce(
+        (sum: number, item) => sum + Number(item.qty || 0) * Number(item.unitPrice || 0),
+        0
+      );
+      bucket.roomSales += roomCharge + foodCharges;
+    }
+  }
+
+  // 6. Bucket Inventory Purchases
+  for (const p of purchases) {
+    if (!p.purchasedAt) continue;
+    const key = toLocalDateKey(p.purchasedAt);
+    const bucket = dailyMap.get(key);
+    if (bucket) {
+      bucket.purchaseExpenses += Number(p.totalCost || 0);
+    }
+  }
+
+  // 7. Aggregate Totals
+  const dailyBreakdown = Array.from(dailyMap.values()).map(d => {
+    const totalSales = d.quickSales + d.tableSales + d.roomSales;
+    const totalExpenses = d.purchaseExpenses + d.operationalExpenses;
+    return {
+      ...d,
+      totalSales,
+      totalExpenses,
+      netProfit: totalSales - totalExpenses
+    };
+  });
+
+  const totalQuick = dailyBreakdown.reduce((sum, d) => sum + d.quickSales, 0);
+  const totalTable = dailyBreakdown.reduce((sum, d) => sum + d.tableSales, 0);
+  const totalRoom = dailyBreakdown.reduce((sum, d) => sum + d.roomSales, 0);
+  const totalPurchases = dailyBreakdown.reduce((sum, d) => sum + d.purchaseExpenses, 0);
+  const totalOperational = dailyBreakdown.reduce((sum, d) => sum + d.operationalExpenses, 0);
+  const grandTotal = totalQuick + totalTable + totalRoom;
+  const totalExpenses = totalPurchases + totalOperational;
+  const netProfit = grandTotal - totalExpenses;
+
+  return {
+    summary: {
+      quickSales: totalQuick,
+      tableSales: totalTable,
+      roomSales: totalRoom,
+      totalSales: grandTotal,
+      purchaseExpenses: totalPurchases,
+      operationalExpenses: totalOperational,
+      totalExpenses,
+      netProfit,
+      startDate: toLocalDateKey(start),
+      endDate: toLocalDateKey(end)
+    },
+    dailyBreakdown
   };
 }
 

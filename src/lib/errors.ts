@@ -63,3 +63,17 @@ export class RoomConflictError extends Error {
   }
 }
 
+/**
+ * Custom application error thrown when a requested resource is not found.
+ */
+export class NotFoundError extends Error {
+  public statusCode = 404;
+
+  constructor(message = "Resource not found.") {
+    super(message);
+    this.name = "NotFoundError";
+    Object.setPrototypeOf(this, NotFoundError.prototype);
+  }
+}
+
+

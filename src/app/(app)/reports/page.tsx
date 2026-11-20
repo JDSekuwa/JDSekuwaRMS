@@ -10,6 +10,7 @@ import {
   AlertTriangle, Package, Loader2, Printer
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MonthlySalesReport } from "@/components/reports/monthly-sales-report";
 
 /* ───────────────────────────── helpers ───────────────────────────── */
 
@@ -92,7 +93,8 @@ type ReportTab =
   | "purchases"
   | "credit"
   | "rooms"
-  | "profit";
+  | "profit"
+  | "sales";
 
 const TABS: { key: ReportTab; label: string; superOnly?: boolean }[] = [
   { key: "daily", label: "Daily Sales" },
@@ -102,6 +104,7 @@ const TABS: { key: ReportTab; label: string; superOnly?: boolean }[] = [
   { key: "credit", label: "Credit Outstanding" },
   { key: "rooms", label: "Room Occupancy" },
   { key: "profit", label: "Profit Summary", superOnly: true },
+  { key: "sales", label: "Sales Performance" },
 ];
 
 /* ═══════════════════════════ component ══════════════════════════ */
@@ -113,6 +116,7 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<ReportTab>("daily");
   const [startDate, setStartDate] = useState(defaultRange().startDate);
   const [endDate, setEndDate] = useState(defaultRange().endDate);
+  const [salesDates, setSalesDates] = useState(() => defaultRange());
 
   const params = `startDate=${startDate}&endDate=${endDate}`;
 
@@ -236,7 +240,9 @@ export default function ReportsPage() {
         actions={
           <button
             onClick={() => {
-              window.open(`/print-report?tab=${activeTab}&startDate=${startDate}&endDate=${endDate}`, "_blank");
+              const exportStart = activeTab === "sales" ? salesDates.startDate : startDate;
+              const exportEnd = activeTab === "sales" ? salesDates.endDate : endDate;
+              window.open(`/print-report?tab=${activeTab}&startDate=${exportStart}&endDate=${exportEnd}`, "_blank");
             }}
             className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-white text-xs font-bold rounded-control shadow-sm hover:bg-primary-hover active:scale-[0.99] transition-all select-none"
           >
@@ -297,12 +303,12 @@ export default function ReportsPage() {
 
       {/* ═══════════════ TAB: Daily Sales ═══════════════ */}
       {activeTab === "daily" && daily.data && (
-        <div className="space-y-5">
+        <div className="space-y-5 animate-fade-in-up">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard title="Total Sales Today" value={rs(daily.data.totalSales)} icon={<DollarSign />} />
-            <StatCard title="Quick-Sell Sales" value={rs(daily.data.quickSales)} icon={<ShoppingCart />} />
-            <StatCard title="Table Dine-in Sales" value={rs(daily.data.tableSales)} icon={<Users />} />
-            <StatCard title="Room/Stay Sales" value={rs(daily.data.roomSales)} icon={<Bed />} />
+            <StatCard title="TOTAL SALES TODAY" value={rs(daily.data.totalSales)} icon={<DollarSign />} />
+            <StatCard title="QUICK-SELL SALES" value={rs(daily.data.quickSales)} icon={<ShoppingCart />} />
+            <StatCard title="TABLE DINE-IN SALES" value={rs(daily.data.tableSales)} icon={<Users />} />
+            <StatCard title="ROOM/STAY SALES" value={rs(daily.data.roomSales)} icon={<Bed />} />
           </div>
 
           <div className="rounded-card border border-border bg-card p-6 space-y-4">
@@ -727,6 +733,15 @@ export default function ReportsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ═══════════════ TAB: Monthly Sales ═══════════════ */}
+      {activeTab === "sales" && (
+        <MonthlySalesReport
+          onDateRangeChange={(s, e) => {
+            setSalesDates({ startDate: s, endDate: e });
+          }}
+        />
       )}
     </div>
   );

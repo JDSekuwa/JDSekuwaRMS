@@ -472,8 +472,33 @@ To enable silent thermal printing of KOTs and sales receipts on local cash regis
    - Enable SSL/TLS encryption setting to **Full (strict)**.
 3. Add initial Admin accounts and enter menu items details inside the production settings page.
 
+---
 
+## Expense Category Management: Confirmation Dialog, Restrict Policy & Payment Options Alignment
 
+### Context & Implementation
+- **Confirmation Modal with Restrict Policy**: Deleting an expense category triggers a confirmation dialog:
+  - If `count === 0`: Allows the admin to confirm permanent deletion of the unused category.
+  - If `count > 0`: Prevents deletion and displays an explicit notice explaining that the category contains active expenses and cannot be deleted until those records are reassigned or removed.
+- **Service Layer & Schema Enforcement**:
+  - Maintained `onDelete: Restrict` in [prisma/schema.prisma](file:///mnt/Disk2/Sameer/JDSekuwaRMS/prisma/schema.prisma) and enforced check in `deleteExpenseCategory()` ([src/services/expense.service.ts](file:///mnt/Disk2/Sameer/JDSekuwaRMS/src/services/expense.service.ts)) to safeguard audit trails and historical financial reports against accidental data loss.
+- **PaymentType Alignment**:
+  - Fixed the payment method selection in [src/components/reports/expenses-management.tsx](file:///mnt/Disk2/Sameer/JDSekuwaRMS/src/components/reports/expenses-management.tsx) to match the PostgreSQL `PaymentType` enum (`CASH`, `CARD`, `CREDIT`), eliminating schema validation errors when saving expenses.
+
+---
+
+## Dedicated Expenses Navigation & Decoupling from Sales Reports
+
+### Context & Implementation
+- **Dedicated Navbar Menu Item**:
+  - Created a top-level `/expenses` route and added it to the sidebar navigation (`NAV_ITEMS`) in [src/app/(app)/layout.tsx](file:///mnt/Disk2/Sameer/JDSekuwaRMS/src/app/(app)/layout.tsx) with a `Receipt` icon, restricted to `SUPER_ADMIN` and `ADMIN` roles.
+  - Added dedicated page component at [src/app/(app)/expenses/page.tsx](file:///mnt/Disk2/Sameer/JDSekuwaRMS/src/app/(app)/expenses/page.tsx).
+  - Protected `/expenses` and `/api/expenses` in [src/middleware.ts](file:///mnt/Disk2/Sameer/JDSekuwaRMS/src/middleware.ts), redirecting workers to `/pos`.
+- **Decoupled from Sales Report**:
+  - Removed operational overhead expenses (`superuserPrisma.expense`) from `getSalesReport()` in [src/services/reports.service.ts](file:///mnt/Disk2/Sameer/JDSekuwaRMS/src/services/reports.service.ts). The sales report now strictly measures sales revenue streams (Quick-sell, Table Dine-in, Rooms) and related inventory COGS without being distorted by unrelated operational overheads.
+  - Removed the "Expenses" tab from [src/app/(app)/reports/page.tsx](file:///mnt/Disk2/Sameer/JDSekuwaRMS/src/app/(app)/reports/page.tsx).
+- **Simplified Expenses Management UI**:
+  - Removed the 4 redundant summary StatCards (Total Expenses, Transactions, Average Transaction, Categories) from [src/components/reports/expenses-management.tsx](file:///mnt/Disk2/Sameer/JDSekuwaRMS/src/components/reports/expenses-management.tsx), providing a clean, uncluttered interface focused directly on date filtering, category management, and the expense records ledger.
 
 
 

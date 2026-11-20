@@ -118,10 +118,12 @@ export async function middleware(request: NextRequest) {
       const isRestrictedAdminPath =
         path.startsWith("/settings") ||
         path.startsWith("/reports") ||
+        path.startsWith("/expenses") ||
         path.startsWith("/audit") ||
         (path.startsWith("/api/") && 
          (path.startsWith("/api/settings") || 
           path.startsWith("/api/reports") || 
+          path.startsWith("/api/expenses") || 
           path.startsWith("/api/audit")));
       
       if (isRestrictedAdminPath) {
@@ -156,7 +158,7 @@ export async function middleware(request: NextRequest) {
   });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    (process.env.SUPABASE_INTERNAL_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!),
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
@@ -211,10 +213,12 @@ export async function middleware(request: NextRequest) {
     const isRestrictedAdminPath =
       path.startsWith("/settings") ||
       path.startsWith("/reports") ||
+      path.startsWith("/expenses") ||
       path.startsWith("/audit") ||
       (path.startsWith("/api/") && 
        (path.startsWith("/api/settings") || 
         path.startsWith("/api/reports") || 
+        path.startsWith("/api/expenses") || 
         path.startsWith("/api/audit")));
     
     if (isRestrictedAdminPath) {

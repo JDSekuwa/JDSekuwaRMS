@@ -26,6 +26,15 @@ function PrintReportContent() {
     enabled: tab === "daily",
   });
 
+  const sales = useQuery<any>({
+    queryKey: ["print-report-sales", startDate, endDate],
+    queryFn: async () => {
+      const r = await fetch(`/api/reports/sales?${params}`);
+      return r.json();
+    },
+    enabled: tab === "sales",
+  });
+
   const cogs = useQuery<any>({
     queryKey: ["print-report-cogs", startDate, endDate],
     queryFn: async () => {
@@ -51,6 +60,15 @@ function PrintReportContent() {
       return r.json();
     },
     enabled: tab === "purchases",
+  });
+
+  const expenses = useQuery<any>({
+    queryKey: ["print-report-expenses", startDate, endDate],
+    queryFn: async () => {
+      const r = await fetch(`/api/expenses?startDate=${startDate}&endDate=${endDate}&limit=500`);
+      return r.json();
+    },
+    enabled: tab === "expenses",
   });
 
   const credit = useQuery<any>({
@@ -100,18 +118,22 @@ function PrintReportContent() {
 
   const isLoading =
     (tab === "daily" && daily.isLoading) ||
+    (tab === "sales" && sales.isLoading) ||
     (tab === "cogs" && cogs.isLoading) ||
     (tab === "items" && items.isLoading) ||
     (tab === "purchases" && purchases.isLoading) ||
+    (tab === "expenses" && expenses.isLoading) ||
     (tab === "credit" && (credit.isLoading || creditDetails.isLoading)) ||
     (tab === "rooms" && (rooms.isLoading || roomDetails.isLoading)) ||
     (tab === "profit" && profit.isLoading);
 
   const dataReady =
     (tab === "daily" && daily.data) ||
+    (tab === "sales" && sales.data) ||
     (tab === "cogs" && cogs.data) ||
     (tab === "items" && items.data) ||
     (tab === "purchases" && purchases.data) ||
+    (tab === "expenses" && expenses.data) ||
     (tab === "credit" && credit.data && creditDetails.data) ||
     (tab === "rooms" && rooms.data && roomDetails.data) ||
     (tab === "profit" && profit.data);
@@ -138,10 +160,12 @@ function PrintReportContent() {
 
   // Define tab name titles
   const reportTitles: Record<string, string> = {
-    daily: "Daily Sales Report",
+    daily: "Daily Sales Summary Report",
+    sales: "Sales Performance Report",
     cogs: "Cost of Goods Sold (COGS) Report",
     items: "Item-Wise Performance Report",
     purchases: "Acquisition Purchase Cost Report",
+    expenses: "Operating Expenses Ledger (Non-Saleable Overhead)",
     credit: "Accounts Receivable Credit Ledger",
     rooms: "Room Occupancy & Status Report",
     profit: "Profit & Loss Income Statement",
@@ -170,7 +194,7 @@ function PrintReportContent() {
 
       {/* BODY CONTENT */}
 
-      {/* DAILY SALES */}
+      {/* DAILY SALES SUMMARY */}
       {tab === "daily" && daily.data && (
         <div className="space-y-6">
           <div className="grid grid-cols-4 gap-4 mb-4 border border-black p-4">
@@ -192,37 +216,192 @@ function PrintReportContent() {
             </div>
           </div>
 
-          <table className="w-full border-collapse border border-black text-xs text-left">
-            <thead>
-              <tr className="border-b border-black bg-gray-100 font-bold uppercase">
-                <th className="border-r border-black p-2">Revenue Stream</th>
-                <th className="border-r border-black p-2 text-right">Accounting Code</th>
-                <th className="p-2 text-right">Amount (NPR)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-gray-300">
-                <td className="border-r border-black p-2 font-semibold">POS Quick Sell Revenue</td>
-                <td className="border-r border-black p-2 text-right font-mono">REV-QSELL</td>
-                <td className="p-2 text-right font-mono">{rs(daily.data.quickSales)}</td>
-              </tr>
-              <tr className="border-b border-gray-300">
-                <td className="border-r border-black p-2 font-semibold">Table Dine-in Revenue</td>
-                <td className="border-r border-black p-2 text-right font-mono">REV-TDINE</td>
-                <td className="p-2 text-right font-mono">{rs(daily.data.tableSales)}</td>
-              </tr>
-              <tr className="border-b border-black">
-                <td className="border-r border-black p-2 font-semibold">Rooms Lodging Revenue</td>
-                <td className="border-r border-black p-2 text-right font-mono">REV-ROOM</td>
-                <td className="p-2 text-right font-mono">{rs(daily.data.roomSales)}</td>
-              </tr>
-              <tr className="font-bold bg-gray-200">
-                <td className="border-r border-black p-2">Total Gross Receipts</td>
-                <td className="border-r border-black p-2 text-right font-mono">REV-TOTAL</td>
-                <td className="p-2 text-right font-mono">{rs(daily.data.totalSales)}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div>
+            <h3 className="text-xs font-bold uppercase mb-2">Today&apos;s Revenue Accounting Breakdown</h3>
+            <table className="w-full border-collapse border border-black text-xs text-left">
+              <thead>
+                <tr className="border-b border-black bg-gray-100 font-bold uppercase">
+                  <th className="border-r border-black p-2">Revenue Stream</th>
+                  <th className="border-r border-black p-2 text-right">Accounting Code</th>
+                  <th className="p-2 text-right">Amount (NPR)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-gray-300">
+                  <td className="border-r border-black p-2 font-semibold">POS Quick Sell Revenue</td>
+                  <td className="border-r border-black p-2 text-right font-mono">REV-QSELL</td>
+                  <td className="p-2 text-right font-mono">{rs(daily.data.quickSales)}</td>
+                </tr>
+                <tr className="border-b border-gray-300">
+                  <td className="border-r border-black p-2 font-semibold">Table Dine-in Revenue</td>
+                  <td className="border-r border-black p-2 text-right font-mono">REV-TDINE</td>
+                  <td className="p-2 text-right font-mono">{rs(daily.data.tableSales)}</td>
+                </tr>
+                <tr className="border-b border-black">
+                  <td className="border-r border-black p-2 font-semibold">Rooms Lodging Revenue</td>
+                  <td className="border-r border-black p-2 text-right font-mono">REV-ROOM</td>
+                  <td className="p-2 text-right font-mono">{rs(daily.data.roomSales)}</td>
+                </tr>
+                <tr className="font-bold bg-gray-200">
+                  <td className="border-r border-black p-2">Total Gross Receipts</td>
+                  <td className="border-r border-black p-2 text-right font-mono">REV-TOTAL</td>
+                  <td className="p-2 text-right font-mono">{rs(daily.data.totalSales)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MONTHLY / MULTI-RANGE SALES */}
+      {tab === "sales" && sales.data?.summary && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-3 gap-4 mb-4 border border-black p-4">
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Overall Sales</span>
+              <span className="text-sm font-bold font-mono">{rs(sales.data.summary.totalSales)}</span>
+            </div>
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Overall Expenses</span>
+              <span className="text-sm font-bold font-mono text-red-700">- {rs(sales.data.summary.totalExpenses)}</span>
+            </div>
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Net Operating Balance</span>
+              <span className="text-sm font-bold font-mono">{rs(sales.data.summary.netProfit)}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4 mb-4 border border-black p-4">
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Quick Sell Sales</span>
+              <span className="text-sm font-bold font-mono">{rs(sales.data.summary.quickSales)}</span>
+            </div>
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Table Dine-in Sales</span>
+              <span className="text-sm font-bold font-mono">{rs(sales.data.summary.tableSales)}</span>
+            </div>
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Room/Stay Sales</span>
+              <span className="text-sm font-bold font-mono">{rs(sales.data.summary.roomSales)}</span>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-xs font-bold uppercase mb-2">Revenue & Expense Accounting Breakdown</h3>
+            <table className="w-full border-collapse border border-black text-xs text-left">
+              <thead>
+                <tr className="border-b border-black bg-gray-100 font-bold uppercase">
+                  <th className="border-r border-black p-2">Financial Category / Stream</th>
+                  <th className="border-r border-black p-2 text-right">Accounting Code</th>
+                  <th className="border-r border-black p-2 text-right">Share / Ratio (%)</th>
+                  <th className="p-2 text-right">Amount (NPR)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-gray-300">
+                  <td className="border-r border-black p-2 font-semibold">POS Quick Sell Revenue</td>
+                  <td className="border-r border-black p-2 text-right font-mono">REV-QSELL</td>
+                  <td className="border-r border-black p-2 text-right font-mono">
+                    {sales.data.summary.totalSales > 0
+                      ? `${((sales.data.summary.quickSales / sales.data.summary.totalSales) * 100).toFixed(1)}%`
+                      : "0.0%"}
+                  </td>
+                  <td className="p-2 text-right font-mono">{rs(sales.data.summary.quickSales)}</td>
+                </tr>
+                <tr className="border-b border-gray-300">
+                  <td className="border-r border-black p-2 font-semibold">Table Dine-in Revenue</td>
+                  <td className="border-r border-black p-2 text-right font-mono">REV-TDINE</td>
+                  <td className="border-r border-black p-2 text-right font-mono">
+                    {sales.data.summary.totalSales > 0
+                      ? `${((sales.data.summary.tableSales / sales.data.summary.totalSales) * 100).toFixed(1)}%`
+                      : "0.0%"}
+                  </td>
+                  <td className="p-2 text-right font-mono">{rs(sales.data.summary.tableSales)}</td>
+                </tr>
+                <tr className="border-b border-black">
+                  <td className="border-r border-black p-2 font-semibold">Rooms Lodging Revenue</td>
+                  <td className="border-r border-black p-2 text-right font-mono">REV-ROOM</td>
+                  <td className="border-r border-black p-2 text-right font-mono">
+                    {sales.data.summary.totalSales > 0
+                      ? `${((sales.data.summary.roomSales / sales.data.summary.totalSales) * 100).toFixed(1)}%`
+                      : "0.0%"}
+                  </td>
+                  <td className="p-2 text-right font-mono">{rs(sales.data.summary.roomSales)}</td>
+                </tr>
+                <tr className="font-bold bg-gray-200 border-b border-black">
+                  <td className="border-r border-black p-2">Total Gross Receipts</td>
+                  <td className="border-r border-black p-2 text-right font-mono">REV-TOTAL</td>
+                  <td className="border-r border-black p-2 text-right font-mono">100.0%</td>
+                  <td className="p-2 text-right font-mono">{rs(sales.data.summary.totalSales)}</td>
+                </tr>
+                <tr className="border-b border-black">
+                  <td className="border-r border-black p-2 font-semibold">Purchases & Operational Expenses</td>
+                  <td className="border-r border-black p-2 text-right font-mono">EXP-PURCH</td>
+                  <td className="border-r border-black p-2 text-right font-mono">
+                    {sales.data.summary.totalSales > 0
+                      ? `${((sales.data.summary.totalExpenses / sales.data.summary.totalSales) * 100).toFixed(1)}%`
+                      : "-"}
+                  </td>
+                  <td className="p-2 text-right font-mono text-red-700">- {rs(sales.data.summary.totalExpenses)}</td>
+                </tr>
+                <tr className="font-bold bg-gray-100">
+                  <td className="border-r border-black p-2">Net Operating Balance</td>
+                  <td className="border-r border-black p-2 text-right font-mono">NET-BALANCE</td>
+                  <td className="border-r border-black p-2 text-right font-mono">
+                    {sales.data.summary.totalSales > 0
+                      ? `${((sales.data.summary.netProfit / sales.data.summary.totalSales) * 100).toFixed(1)}%`
+                      : "0.0%"}
+                  </td>
+                  <td className="p-2 text-right font-mono">{rs(sales.data.summary.netProfit)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {sales.data.dailyBreakdown && sales.data.dailyBreakdown.length > 0 && (
+            <div>
+              <h3 className="text-xs font-bold uppercase mb-2">Day-by-Day Sales & Expense Ledger</h3>
+              <table className="w-full border-collapse border border-black text-xs text-left">
+                <thead>
+                  <tr className="border-b border-black bg-gray-100 font-bold uppercase">
+                    <th className="border-r border-black p-2">Date</th>
+                    <th className="border-r border-black p-2 text-right">Quick Sell (NPR)</th>
+                    <th className="border-r border-black p-2 text-right">Table Dine-in (NPR)</th>
+                    <th className="border-r border-black p-2 text-right">Room Stay (NPR)</th>
+                    <th className="border-r border-black p-2 text-right">Total Sales (NPR)</th>
+                    <th className="border-r border-black p-2 text-right">Expenses (NPR)</th>
+                    <th className="p-2 text-right">Net Balance (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sales.data.dailyBreakdown.map((row: any) => (
+                    <tr key={row.date} className="border-b border-gray-300">
+                      <td className="border-r border-black p-2 font-mono font-medium">{row.date}</td>
+                      <td className="border-r border-black p-2 text-right font-mono">{rs(row.quickSales)}</td>
+                      <td className="border-r border-black p-2 text-right font-mono">{rs(row.tableSales)}</td>
+                      <td className="border-r border-black p-2 text-right font-mono">{rs(row.roomSales)}</td>
+                      <td className="border-r border-black p-2 text-right font-mono font-bold">{rs(row.totalSales)}</td>
+                      <td className="border-r border-black p-2 text-right font-mono text-red-700">
+                        {row.totalExpenses > 0 ? `- ${rs(row.totalExpenses)}` : rs(0)}
+                      </td>
+                      <td className="p-2 text-right font-mono font-bold">{rs(row.netProfit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="font-bold bg-gray-200 border-t border-black">
+                    <td className="border-r border-black p-2">Total</td>
+                    <td className="border-r border-black p-2 text-right font-mono">{rs(sales.data.summary.quickSales)}</td>
+                    <td className="border-r border-black p-2 text-right font-mono">{rs(sales.data.summary.tableSales)}</td>
+                    <td className="border-r border-black p-2 text-right font-mono">{rs(sales.data.summary.roomSales)}</td>
+                    <td className="border-r border-black p-2 text-right font-mono">{rs(sales.data.summary.totalSales)}</td>
+                    <td className="border-r border-black p-2 text-right font-mono text-red-700">- {rs(sales.data.summary.totalExpenses)}</td>
+                    <td className="p-2 text-right font-mono">{rs(sales.data.summary.netProfit)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -340,6 +519,62 @@ function PrintReportContent() {
                 </tr>
               ))}
             </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* OPERATING EXPENSES */}
+      {tab === "expenses" && expenses.data && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-3 gap-4 mb-4 border border-black p-4">
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Total Operational Expenses</span>
+              <span className="text-sm font-bold font-mono text-red-700">{rs(expenses.data.summary?.totalAmount || 0)}</span>
+            </div>
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Total Transactions</span>
+              <span className="text-sm font-bold font-mono">{expenses.data.pagination?.total || 0}</span>
+            </div>
+            <div>
+              <span className="text-[9px] uppercase font-bold text-gray-500 block">Classification</span>
+              <span className="text-sm font-bold font-mono text-gray-700">Non-Saleable Overhead</span>
+            </div>
+          </div>
+
+          <table className="w-full border-collapse border border-black text-xs text-left">
+            <thead>
+              <tr className="border-b border-black bg-gray-100 font-bold uppercase">
+                <th className="border-r border-black p-2 font-mono">Date</th>
+                <th className="border-r border-black p-2">Title / Description</th>
+                <th className="border-r border-black p-2">Category</th>
+                <th className="border-r border-black p-2 text-center">Payment</th>
+                <th className="border-r border-black p-2">Vendor</th>
+                <th className="border-r border-black p-2">Recorded By</th>
+                <th className="p-2 text-right">Amount (NPR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {expenses.data.data?.map((exp: any) => (
+                <tr key={exp.id} className="border-b border-gray-300">
+                  <td className="border-r border-black p-2 font-mono">{exp.date ? exp.date.split("T")[0] : "-"}</td>
+                  <td className="border-r border-black p-2 font-semibold">
+                    {exp.title}
+                    {exp.notes && <div className="text-[10px] text-gray-500">{exp.notes}</div>}
+                  </td>
+                  <td className="border-r border-black p-2">{exp.category?.name || "Uncategorized"}</td>
+                  <td className="border-r border-black p-2 text-center font-mono">{exp.paymentType}</td>
+                  <td className="border-r border-black p-2">{exp.vendor || "-"}</td>
+                  <td className="border-r border-black p-2 text-gray-600">{exp.recordedBy?.username || "Admin"}</td>
+                  <td className="p-2 text-right font-mono font-bold text-red-700">{rs(exp.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-black font-bold bg-gray-50">
+                <td colSpan={6} className="border-r border-black p-2 text-right uppercase">Total Operating Expenses</td>
+                <td className="p-2 text-right font-mono font-bold text-red-700">{rs(expenses.data.summary?.totalAmount || 0)}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}
